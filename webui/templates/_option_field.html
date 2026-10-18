@@ -1,0 +1,21 @@
+{% if opt.kind == "flag" %}
+<label class="field field-flag">
+  <input type="checkbox" name="{{ opt.key }}" id="opt_{{ opt.key }}">
+  <span>{{ opt.flag }}: {{ opt.help }}</span>
+</label>
+{% elif opt.kind == "choice" %}
+<label class="field">
+  <span>{{ opt.help }} ({{ opt.flag }})</span>
+  <select name="{{ opt.key }}" id="opt_{{ opt.key }}">
+    <option value="">(default{% if opt.default %}: {{ opt.default }}{% endif %})</option>
+    {% for c in opt.choices if c != opt.default %}
+    <option value="{{ c }}"{% if opt.value and c|lower == opt.value|lower %} selected{% endif %}>{{ c }}</option>
+    {% endfor %}
+  </select>
+</label>
+{% else %}
+<label class="field">
+  <span>{{ opt.help }} ({{ opt.flag }})</span>
+  <input type="{{ 'number' if opt.kind == 'int' else 'text' }}" name="{{ opt.key }}" id="opt_{{ opt.key }}" placeholder="{{ opt.placeholder or '' }}" value="{{ opt.value or '' }}">
+</label>
+{% endif %}

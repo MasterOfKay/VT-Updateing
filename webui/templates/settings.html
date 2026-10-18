@@ -1,0 +1,145 @@
+{% extends "base.html" %}
+{% block title %}Settings | VT.PR.WV{% endblock %}
+{% block content %}
+<h1>Settings</h1>
+
+<fieldset id="storage-paths">
+  <legend>Storage</legend>
+  <p class="hint">Where finished downloads and temporary files are saved. This applies to every download.
+    Leave a field empty to use the folder inside this project. A folder that doesn't exist yet is created for you,
+    so you can easily move downloads or temp files to another drive.</p>
+
+  <label class="field">
+    <span>Downloads folder</span>
+    <input type="text" id="storage-downloads" placeholder="default: downloads/">
+  </label>
+  <p class="hint">In use now: <code id="storage-downloads-effective">&hellip;</code></p>
+
+  <label class="field">
+    <span>Temp folder</span>
+    <input type="text" id="storage-temp" placeholder="default: temp/">
+  </label>
+  <p class="hint">In use now: <code id="storage-temp-effective">&hellip;</code></p>
+
+  <button type="button" id="btn-save-storage" class="primary">Save Paths</button>
+  <p id="storage-message" class="message"></p>
+
+  <p class="hint">Temp folder contents: <span id="temp-usage">&hellip;</span></p>
+  <button type="button" id="btn-clean-temp">Clean temp folder</button>
+  <p id="temp-message" class="message"></p>
+</fieldset>
+
+<fieldset id="progress-display-setting">
+  <legend>Console Progress Display</legend>
+  <p class="hint">Only matters when you run vinetrimmer yourself in a terminal (cmd or shell). It decides whether
+    you see live progress bars or simple "Downloaded: &lt;track&gt;" lines. Downloads started here in the web UI
+    always show progress bars on the Console tab.</p>
+  <label class="field field-flag">
+    <input type="checkbox" id="setting-progress-display">
+    <span>Show live progress bars in the terminal (off: simple "Downloaded: &lt;track&gt;" lines)</span>
+  </label>
+</fieldset>
+
+<fieldset id="console-view-setting">
+  <legend>Console Tab</legend>
+  <label class="field">
+    <span>What the Console tab shows (you can also switch this on the tab itself)</span>
+    <select id="setting-console-view">
+      <option value="bars">Download progress only</option>
+      <option value="cli">CLI log only</option>
+      <option value="both">Both</option>
+    </select>
+  </label>
+</fieldset>
+
+<fieldset id="experimental-settings">
+  <legend>Experimental</legend>
+  <label class="field field-flag">
+    <input type="checkbox" id="setting-experimental-check">
+    <span>Availability check on the Download page ("Check availability")</span>
+  </label>
+  <p class="hint">Shows what a title offers before you download it: resolutions, codecs, SDR, HDR10, HDR10+,
+    DV and DV+HDR, every audio track and every subtitle. You can then pick what you want. It logs in and reads the
+    track list, but it never downloads anything and never asks for keys.</p>
+  <p class="hint warn"><strong>Account risk:</strong> every check logs in, just like a download does. Running a check
+    while a download is running looks like several devices at once, and that is riskier for the account.
+    So check first and download afterwards, one thing at a time.</p>
+  <label class="field field-flag">
+    <input type="checkbox" id="setting-fetch-posters">
+    <span>Show posters (looked up on IMDb by the title's name and year)</span>
+  </label>
+  <p class="hint">This sends the name and year to IMDb. When it's off, a poster only shows if the service itself
+    provides one.</p>
+  <p id="experimental-message" class="message"></p>
+</fieldset>
+
+<fieldset id="pin-settings">
+  <legend>Pinned Shows</legend>
+  <label class="field">
+    <span>How often new pins look for new episodes (you can change it for each show on the Queue tab)</span>
+    <select id="setting-pin-hours">
+      <option value="6">every 6 hours</option>
+      <option value="12">every 12 hours</option>
+      <option value="24">every day</option>
+      <option value="48">every 2 days</option>
+      <option value="168">every week</option>
+    </select>
+  </label>
+  <label class="field field-flag">
+    <input type="checkbox" id="setting-fetch-air">
+    <span>Show when the next episode airs (from TVmaze), and look for it right after that time</span>
+  </label>
+  <p class="hint">This sends the show's name to TVmaze. The TV air time is a good guide, but a streaming service can
+    publish a bit later. If the episode isn't there yet, the next regular check finds it.</p>
+</fieldset>
+
+<fieldset id="default-preferences">
+  <legend>Default Preferences</legend>
+  <p class="hint">These values are filled in on the Download page for every service. You can still change them for
+    each download. The command line uses them too when you leave the option out.</p>
+
+  <label class="field">
+    <span>Default audio language (-al)</span>
+    <input type="text" id="setting-alang" placeholder="e.g. orig, en, de">
+  </label>
+  <label class="field">
+    <span>Default subtitle language (-sl)</span>
+    <input type="text" id="setting-slang" placeholder="e.g. all, en, de">
+  </label>
+  <label class="field">
+    <span>Default video codec (-v)</span>
+    <select id="setting-vcodec">
+      <option value="">(vinetrimmer's own default: h264)</option>
+      {% for c in vcodec_choices %}
+      <option value="{{ c }}">{{ c }}</option>
+      {% endfor %}
+    </select>
+  </label>
+
+  <button type="button" id="btn-save-preferences" class="primary">Save Preferences</button>
+  <p id="preferences-message" class="message"></p>
+</fieldset>
+
+<fieldset id="retry-settings">
+  <legend>Failed Downloads</legend>
+  <p class="hint">You can always retry a failed download from the Queue tab. If a show failed in the middle, the
+    retry starts at the episode that failed, so nothing is downloaded twice.</p>
+  <label class="field field-flag">
+    <input type="checkbox" id="setting-auto-retry">
+    <span>Put failed downloads back in the queue automatically</span>
+  </label>
+  <label class="field">
+    <span>Stop retrying after this many failures in a row at the same episode</span>
+    <input type="number" id="setting-auto-retry-max" min="1" max="20" step="1">
+  </label>
+  <p class="hint">If a retry gets further than the one before, the count starts again.</p>
+  <label class="field field-flag">
+    <input type="checkbox" id="setting-cleanup-temp">
+    <span>Delete the leftover files of a failed or cancelled download before the next one starts</span>
+  </label>
+  <p class="hint">This only removes files that download created or changed. Other files in the temp folder stay.
+    To empty the whole folder, use "Clean temp folder" under Storage.</p>
+  <button type="button" id="btn-save-retry" class="primary">Save</button>
+  <p id="retry-message" class="message"></p>
+</fieldset>
+{% endblock %}

@@ -1,0 +1,26 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>{% block title %}VT.PR.WV{% endblock %}</title>
+<link rel="stylesheet" href="{{ url_for('static', filename='style.css', v=asset_version('style.css')) }}">
+</head>
+<body data-boot="{{ boot_id }}">
+<header class="topbar">
+  <div class="brand">VT.PR.WV <span class="brand-version">{{ app_version }}</span></div>
+  <nav class="tabs">
+    <a href="{{ url_for('download') }}" class="{{ 'active' if request.path in ('/', '/download') else '' }}">Download</a>
+    <a href="{{ url_for('queue_page') }}" class="{{ 'active' if request.path == '/queue' else '' }}">Queue</a>
+    <a href="{{ url_for('console_page') }}" class="{{ 'active' if request.path == '/console' else '' }}">Console / CLI</a>
+    <a href="{{ url_for('credentials_page') }}" class="{{ 'active' if request.path == '/credentials' else '' }}">Credentials</a>
+    <a href="{{ url_for('settings_page') }}" class="{{ 'active' if request.path == '/settings' else '' }}">Settings</a>
+    <a href="{{ url_for('update_page') }}" id="nav-update" class="{{ 'active' if request.path == '/update' else '' }}">Update<span class="nav-dot" hidden></span></a>
+  </nav>
+</header>
+<main class="content">
+  {% block content %}{% endblock %}
+</main>
+<script src="{{ url_for('static', filename='app.js', v=asset_version('app.js')) }}"></script>
+</body>
+</html>

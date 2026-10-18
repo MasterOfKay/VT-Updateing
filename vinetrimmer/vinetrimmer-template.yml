@@ -1,0 +1,233 @@
+decrypter: 'packager'
+tag: 'MasterOfKay'
+tag_sd: 'MasterOfKay'
+
+# Whether to write a log file for each run to the logs directory.
+# Set to false to only log to the console and avoid accumulating log files.
+generate_logs: false
+
+arguments: {}
+
+aria2c:
+  file_allocation: 'prealloc'
+
+downloads:
+  # Number of tracks to download concurrently (parallel downloads).
+  # Either a plain number (applies to all services) or a per-service dict
+  # with a 'default', same pattern as the `downloader:` section below.
+  # Set to 1 for sequential downloads.
+  concurrent_tracks:
+    default: 2
+    # DisneyPlus's CDN throttles/blocks hard when too many connections are
+    # opened at once (each track already opens many aria2c connections on
+    # its own) - keep this low or downloads stall out with "Aria2c stalled"
+    # errors.
+    DisneyPlus: 2
+
+  # Number of subtitle tracks to download concurrently, using a separate
+  # worker pool from concurrent_tracks above. Subtitles are small/fast, so
+  # this pool starts downloading immediately alongside the video/audio pool
+  # instead of waiting for a video/audio worker to free up.
+  # Set to 1 to download subtitles one at a time (still in parallel with
+  # video/audio). Set to 0 to disable and fold subtitles back into the
+  # normal concurrent_tracks pool.
+  concurrent_subtitle_downloads:
+    default: 4
+    # Disabled for DisneyPlus - see note above, the extra subtitle pool
+    DisneyPlus: 2
+
+  # Draw the live progress tree during downloads. Set to false to print plain
+  # "Downloaded: <track>" log lines instead.
+  # Every crash_*.log so far faulted inside the thread that renders this tree,
+  # so turning it off is both the workaround and the test for whether the
+  # display is what's killing the process.
+  progress_display:
+    default: true
+
+downloader:
+  # Choose downloader for each service: 'aria2c' or 'N_m3u8DL-RE'
+  # N_m3u8DL-RE is better for HLS/DASH streams and Smooth Streaming (ISM)
+  # aria2c is better for simple direct downloads
+  default: 'N_m3u8DL-RE'
+  DisneyPlus: 'aria2c'
+  Netflix: 'aria2c'
+  Crunchyroll: 'aria2c'
+  HBOMax: 'aria2c'
+  Hulu: 'aria2c'
+  AppleTVPlus: 'aria2c'
+  iTunes: 'aria2c'
+  ParamountPlus: 'aria2c'
+  Amazon: 'aria2c'
+  Viaplay: 'aria2c'
+  Skyshowtime: 'aria2c'
+
+cdm:
+  default: 'mtc_mtc_atv_atv_sl3000'
+  Amazon: 'xiaomi_mi_a1_15.0.0_60ceee88_8159_l3'
+  #Amazon: 'CHROME'
+  DisneyPlus: 'express_luck_technology_limited_express_luck_technology_limited_le-_sl3000'
+  #Amazon: 'hisense_smarttv_hu32e5600fhwv_SL3000'
+  NowTVUK: 'lg_electronics_inc_lg_webos_tv_mt9033b_sl3000'
+  MoviesAnywhere: 'xiaomi_mi_a1_15.0.0_60ceee88_8159_l3'
+  Netflix: 'CHROME'
+  All4: 'xiaomi_mi_a1_15.0.0_60ceee88_8159_l3'
+  MY5: 'xiaomi_mi_a1_15.0.0_60ceee88_8159_l3'
+  ROKU: 'xiaomi_mi_a1_15.0.0_60ceee88_8159_l3'
+  WowTV: 'xiaomi_mi_a1_15.0.0_60ceee88_8159_l3'
+  Crave: 'xiaomi_mi_a1_15.0.0_60ceee88_8159_l3'
+  Crunchyroll: 'xiaomi_mi_a1_15.0.0_60ceee88_8159_l3'
+  Viaplay: 'xiaomi_mi_a1_15.0.0_60ceee88_8159_l3'
+  
+cdm_api:
+  - name: 'chrome_api'
+    host: ''
+    key: ''
+    device: 'widevine'
+    type: 'CHROME'
+    system_id: 36586
+    security_level: 3
+  - name: CHROME
+    host: https://chrome.drmkeys.me
+    challenge_path: "/get-challenge"
+    license_path: "/get-keys"
+    key: 'cdcb6a80-6822-423f-949e-299b6417b95d_7e68aed7a0a93b2ab53271d58df46f84_Leonardo'
+    device: chromecdm
+    type: CHROME
+    system_id: 34312
+    security_level: 3
+    legacy: true
+    use_proxy: false
+    drm_type: Widevine
+
+credentials:
+  Crunchyroll: tia.bailiff@gmail.com:Marlee11!
+  Crave: email:password
+  Videoland: email:password
+  DisneyPlus: 'jazzmastermaster@gmail.com:Monty135'
+  ParamountPlus: guedima81@gmail.com:Joel2007?
+  All4: email:password
+  RakutenTV: email:password
+  BritBox: email:password
+  Hulu: huffangella@yahoo.com:Alyssa1031$
+  HBOMax: 'callemand99@yahoo.com:Carrie85462'
+
+
+directories:
+  temp: ''
+  downloads: ''
+  # Where font files live. Blank uses assets/fonts. Anything dropped in here that a
+  # subtitle asks for gets attached to the mux, so the folder doubles as a cache -
+  # a font only has to be obtained once, then every later release reuses it.
+  # .ttf/.otf/.ttc are used as-is; .woff/.woff2 are unwrapped to .ttf automatically
+  # and the result cached in a .converted subfolder.
+  fonts: ''
+
+headers:
+  User-Agent: 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/137.0.0.0 Safari/537.36'
+
+key_vaults:
+- type: local
+  name: Local
+  path: '{data_dir}/key_store.db'
+- type: http
+  name: MOK
+  host: http://keys.masterofkay.dev
+#- type: 'http'
+ # name: 'DRMSolver - Vault'
+  #host: 'https://vault.drm-solver.com/'
+  #username: 'user'
+  #password: 'drm-solver.com'
+- type: 'httpapi'
+  name: DRMLAB
+  host: http://api.drmlab.io/vault/
+  password: N7kQp4XzL2mV8cHrY9tFw5BjUa6DeGs3 
+- type: "remote"
+  name: "Group_Vault"
+  database: keys-group
+  host: "furstream.stream"
+  port: 3306
+  username: "Leo"
+  password: "C2rHxHnv"
+ 
+output_template:
+  movies: '{title} - {year}'
+  series: '{title} - {season_episode} - {episode_name}'
+  use_last_audio: false
+
+subtitle_format:
+  default: 'srt'
+  Netflix: 'ass'
+  DisneyPlus: 'ass'
+  HBOMax: 'ass'
+  ParamountPlus: 'ass'
+  Crunchyroll: 'ass'
+  AppleTVPlus: 'ass'
+
+# The style written into generated ASS files. Only applies to ASS that vinetrimmer
+# generates - a service that hands out real ASS (Crunchyroll does, for some of its
+# catalogue) keeps its own styling untouched.
+#
+# The font is NOT chosen here by default. A WebVTT that declares one in a STYLE block
+#   STYLE
+#   ::cue { font-family: "Some Font"; }
+# has that font used and embedded. A subtitle that declares nothing gets the plain
+# default below, and no font is invented for it or attached.
+#
+# Sizes are measured against a 1920x1080 script resolution, which libass scales to
+# whatever the video is, so 54 looks the same on a 720p file as on a 4k one.
+subtitle_style:
+  default:
+    font: 'Arial'
+    size: 54
+
+  # Adding a service here OVERRIDES whatever the subtitle asks for, forcing that font
+  # on every track from that service and fetching it if it is not already cached. Left
+  # commented out, the subtitle decides. Names are the family as recorded in the font
+  # file - use exactly these:
+  #   Netflix       'Netflix Sans'      or 'Roboto'
+  #   DisneyPlus    'Inspire'
+  #   HBOMax        'Handset Sans UI',  or 'Cinecav Casual' / 'Cinecav Mono'
+  #   Crunchyroll   'Crunchyroll Atyp'  or 'DM Sans'
+  #   AppleTVPlus   'SF Pro'            or 'SF Pro Display'
+  #
+  # Only the Cinecav pair are caption faces; the rest are the site/app UI fonts, so
+  # forcing one is a look you choose rather than what the service actually renders.
+  # They also only cover the scripts their player's UI needs - none carry Hebrew, Thai
+  # or CJK, and Inspire has no Cyrillic - so a track the font cannot render falls back
+  # to the default automatically rather than turning into boxes.
+  #
+  # Netflix:     {font: 'Netflix Sans'}
+  # DisneyPlus:  {font: 'Inspire'}
+  # HBOMax:      {font: 'Cinecav Casual'}
+  # Crunchyroll: {font: 'Crunchyroll Atyp'}
+  # AppleTVPlus: {font: 'SF Pro'}
+
+# Attach the fonts that ASS subtitles reference to the muxed file, taking them from
+# the fonts directory above. Only the families actually referenced are attached, and
+# only once each however many subtitle tracks want them. Families every player
+# already has (Arial, Verdana, ...) are skipped, since attaching them adds size for
+# no benefit. Set to false to mux without attachments.
+attach_fonts: true
+
+# When a subtitle asks for a font that is not in the fonts directory, fetch it from
+# the service's own CDN. Only triggers on a font that is actually missing, only for
+# the services the subtitles came from, and each file is downloaded once ever - after
+# that the local copy is reused and nothing is requested. Set to false to stay
+# entirely offline and supply fonts by hand.
+download_fonts: true
+
+profiles:
+  default: 'default'
+
+default_proxy_service: null  # Options: 'surfshark', 'nordvpn'
+
+proxies: {}
+
+nordvpn:
+    username: ''
+    password: ''
+
+surfshark:
+    username: ''
+    password: ''
+

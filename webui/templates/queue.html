@@ -1,0 +1,24 @@
+{% extends "base.html" %}
+{% block title %}Queue | VT.PR.WV{% endblock %}
+{% block content %}
+<h1>Queue</h1>
+<div class="actions">
+  <button type="button" id="btn-start-queue" class="primary">Start Queue</button>
+  <button type="button" id="btn-pause-queue" title="The current download finishes; the next one waits until Start Queue or Download Now">Pause after current</button>
+  <button type="button" id="btn-clear-finished">Clear Finished</button>
+</div>
+<p id="queue-state" class="queue-state" hidden></p>
+
+<section id="pins" class="pins" hidden>
+  <h2>Pinned shows</h2>
+  <p class="hint">These shows are checked for new episodes automatically. Each check adds one job to the queue.
+    If the queue is paused, the check simply waits its turn.</p>
+  <div id="pin-list" class="pin-list"></div>
+</section>
+<table class="job-table">
+  <thead>
+    <tr><th>Service</th><th>Title</th><th>Status</th><th>Command</th><th></th></tr>
+  </thead>
+  <tbody id="job-table-body"></tbody>
+</table>
+{% endblock %}

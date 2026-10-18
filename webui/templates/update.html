@@ -1,0 +1,32 @@
+{% extends "base.html" %}
+{% block title %}Update | VT.PR.WV{% endblock %}
+{% block content %}
+<h1>Update</h1>
+
+<div class="update-current" id="update-current">
+  <div>
+    <div class="hint">Installed version</div>
+    <div class="update-version">{{ app_version }}</div>
+  </div>
+  <div class="update-controls">
+    <label class="field field-flag">
+      <input type="checkbox" id="setting-update-prereleases">
+      <span>Include experimental / pre-release builds</span>
+    </label>
+    <button type="button" id="btn-update-check">Check for updates</button>
+  </div>
+</div>
+<p id="update-status" class="hint"></p>
+<p id="update-message" class="message"></p>
+<div id="update-restart" class="update-restart" hidden>
+  <span id="update-restart-text"></span>
+  <button type="button" class="primary" id="btn-update-restart">Restart web UI now</button>
+</div>
+
+<div id="update-list" class="update-list"></div>
+
+<p class="hint">Updates come from the releases of <code id="update-repo"></code> on GitHub. An update only replaces
+  the program's own files. Your configs, credentials, services, devices, cookies, key vault, binaries, downloads,
+  queue and settings are never touched. Every replaced file is backed up to <code>backups/</code> first, and you
+  can go back to an older version from this list at any time.</p>
+{% endblock %}

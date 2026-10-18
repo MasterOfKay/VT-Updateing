@@ -1,0 +1,45 @@
+{% extends "base.html" %}
+{% block title %}Console | VT.PR.WV{% endblock %}
+{% block content %}
+<div class="console-page view-{{ console_view }}" id="console-page" data-view="{{ console_view }}">
+  <div class="console-toolbar">
+    <label class="field">
+      <span>Job</span>
+      <select id="job-select"></select>
+    </label>
+    <div class="view-switch" role="group" aria-label="What to show">
+      <button type="button" data-view="bars">Download progress</button>
+      <button type="button" data-view="cli">CLI</button>
+      <button type="button" data-view="both">Both</button>
+    </div>
+  </div>
+
+  <div class="job-header" id="job-header" hidden>
+    <img id="job-poster" class="job-poster" alt="" hidden>
+    <div class="job-header-main">
+      <div class="job-header-title">
+        <span id="job-name" class="job-name"></span>
+        <span id="job-status" class="status"></span>
+      </div>
+      <div id="job-sub" class="job-sub"></div>
+      <div id="console-last-line" class="console-last-line"></div>
+      <div id="job-actions" class="job-actions"></div>
+      <details class="job-command-details">
+        <summary>Command</summary>
+        <pre id="job-command" class="command-line"></pre>
+      </details>
+    </div>
+  </div>
+
+  <div id="progress-panel" class="progress-panel" hidden></div>
+  <p id="progress-empty" class="progress-empty">No download progress yet. It shows up as soon as the tracks start
+    downloading. Switch to <em>CLI</em> to see everything vinetrimmer prints.</p>
+  <pre id="console-output" data-initial-job="{{ job_id }}"></pre>
+
+  <form id="console-input-form" class="console-input" autocomplete="off">
+    <input type="text" id="console-input" placeholder="Answer a prompt (Web Token, OTP code, PIN, y/n&hellip;) and press Enter" disabled>
+    <button type="submit" id="console-input-send" disabled>Send</button>
+  </form>
+  <p id="console-input-message" class="message"></p>
+</div>
+{% endblock %}

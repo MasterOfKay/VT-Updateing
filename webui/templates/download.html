@@ -1,0 +1,142 @@
+{% extends "base.html" %}
+{% block title %}Download | VT.PR.WV{% endblock %}
+{% block content %}
+<h1>Download</h1>
+
+<form id="download-form" onsubmit="return false;">
+  <fieldset>
+    <legend>Service</legend>
+    <label class="field">
+      <span>Service</span>
+      <select name="service" id="service">
+        <option value="">Select a service&hellip;</option>
+        {% for s in services %}
+        <option value="{{ s.name }}">{{ s.label }}</option>
+        {% endfor %}
+      </select>
+    </label>
+
+    <label class="field">
+      <span>Title / URL / ID</span>
+      <input type="text" name="title" id="title" placeholder="Paste a link or ID">
+    </label>
+    <p class="hint" id="title-hint"></p>
+  </fieldset>
+
+  {% if settings.experimental_check %}
+  <fieldset id="availability" class="availability">
+    <legend>Availability <span class="badge">experimental</span></legend>
+    <div class="availability-controls">
+      <label class="field" id="generic-check">
+        <span>What to check</span>
+        <select id="probe-mode">
+          <option value="h265">H.265: 4K / HDR10 / DV (checks H.264 automatically if there's no H.265)</option>
+          <option value="h264">H.264 only: up to 1080p SDR</option>
+          <option value="both">Both H.265 and H.264 (one more login), then pick either one</option>
+        </select>
+      </label>
+      <p id="probe-mode-warning" class="probe-warning" hidden></p>
+      <label class="field">
+        <span>Episode to check (shows only). Leave it empty to check the first episode.</span>
+        <input type="text" id="check-episode" placeholder="e.g. S02E01, or S02 for that season's first episode" autocomplete="off">
+      </label>
+
+      <div id="netflix-check" hidden>
+        <label class="field">
+          <span>Max quality to check</span>
+          <select id="check-quality">
+            <option value="2160">4K with PlayReady (the default), also shows 1080p</option>
+            <option value="1080">1080p with Widevine (-drm widevine)</option>
+          </select>
+        </label>
+        <div class="field"><span>What to check. Netflix has a separate track list for every combination (for example,
+          H.265 HDR10 doesn't include DV or SDR), so each tick means one login.</span></div>
+        <table class="combo-grid">
+          <tr><th>H.264</th>
+            <td><label><input type="checkbox" data-combo="h264:sdr"> SDR</label></td></tr>
+          <tr><th>H.265</th>
+            <td><label><input type="checkbox" data-combo="h265:sdr"> SDR</label></td>
+            <td><label><input type="checkbox" data-combo="h265:hdr10" checked> HDR10</label></td>
+            <td><label><input type="checkbox" data-combo="h265:dv" checked> DV</label></td>
+            <td><label><input type="checkbox" data-combo="h265:hybrid"> Hybrid (HDR10 + DV)</label></td></tr>
+          <tr><th>AV1</th>
+            <td><label><input type="checkbox" data-combo="av1:sdr"> SDR</label></td>
+            <td><label><input type="checkbox" data-combo="av1:hdr10"> HDR10+</label></td>
+            <td><label><input type="checkbox" data-combo="av1:hybridplus"> Hybrid+ (HDR10+ &amp; DV from H.265)</label></td></tr>
+          <tr><th>VP9</th>
+            <td><label><input type="checkbox" data-combo="vp9:sdr"> SDR</label></td>
+            <td><label><input type="checkbox" data-combo="vp9:hdr10"> HDR10</label></td></tr>
+        </table>
+        <div class="avail-chips">
+          <button type="button" class="chip" id="btn-combos-all">Check everything (4K, every manifest)</button>
+          <button type="button" class="chip" id="btn-combos-none">Untick all</button>
+        </div>
+        <p class="hint">If HDR or DV is found, SDR is marked as available for H.264, H.265 and AV1 without an extra
+          login. You won't see its bitrate then, but you can still check it afterwards.</p>
+      </div>
+      <div class="actions">
+        <button type="button" id="btn-check">Check availability</button>
+        <button type="button" id="btn-check-cancel" hidden>Cancel check</button>
+      </div>
+    </div>
+    <p class="hint">Shows what's available without downloading anything or asking for keys. For shows, it checks the
+      episode you entered above, or the first episode. Please don't run a check while a download is running
+      (see Settings, Experimental).</p>
+    <div id="probe-warning" class="probe-warning" hidden></div>
+    <div id="probe-steps" class="probe-steps"></div>
+    <p id="probe-message" class="message"></p>
+    <div id="probe-result"></div>
+  </fieldset>
+  {% endif %}
+
+  <fieldset id="auth-status" class="auth-status" hidden>
+    <legend>Requirements</legend>
+    <div id="auth-status-body"></div>
+  </fieldset>
+
+  {#- With the availability check on, its picks fill these fields - so they're folded
+      away (closed dropdowns) to keep the command and the queue buttons close by. #}
+  {% set collapse = settings.experimental_check %}
+  {% if collapse %}<details class="advanced collapsible"><summary>Options</summary>{% endif %}
+  <fieldset>
+    {% if not collapse %}<legend>Options</legend>{% endif %}
+    <label class="field field-flag">
+      <input type="checkbox" name="debug" id="opt_debug">
+      <span>--debug: show detailed (DEBUG) log messages</span>
+    </label>
+    {% for opt in primary_options %}
+      {% include "_option_field.html" %}
+    {% endfor %}
+  </fieldset>
+  {% if collapse %}</details>{% endif %}
+
+  {% if collapse %}<details class="advanced collapsible" id="service-options-wrap" hidden><summary>Service-specific options</summary>{% endif %}
+  <fieldset id="service-options" hidden>
+    {% if not collapse %}<legend>Service-specific options</legend>{% endif %}
+    <div id="service-options-body"></div>
+  </fieldset>
+  {% if collapse %}</details>{% endif %}
+
+  <details class="advanced">
+    <summary>Advanced options</summary>
+    <fieldset>
+      {% for opt in advanced_options %}
+        {% include "_option_field.html" %}
+      {% endfor %}
+    </fieldset>
+  </details>
+
+  <fieldset>
+    <legend>Command</legend>
+    <pre id="command-preview">python -m vinetrimmer.vinetrimmer dl &hellip;</pre>
+  </fieldset>
+
+  <div class="actions">
+    <button type="button" id="btn-reset-form" title="Clear everything on this page (it's otherwise kept while you switch tabs)">Reset form</button>
+    <button type="button" id="btn-pin" title="Pin this show: it's checked for new episodes from now on and downloads them">Pin show</button>
+    <button type="button" id="btn-queue">Add to Queue</button>
+    <button type="button" id="btn-run" class="primary">Download Now</button>
+  </div>
+  <p id="form-message" class="message"></p>
+</form>
+{% endblock %}
