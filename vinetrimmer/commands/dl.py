@@ -1426,7 +1426,8 @@ def result(ctx, service, quality, range_, wanted, alang, slang, audio_only, subs
                 # Cleanup
                 for track in title.tracks:
                     track.delete()
-                return
+                # Nonzero, so callers (the web UI's queue, scripts) see the failure.
+                sys.exit(1)
             else:
                 console.print("\n")
                 log.info("=" * 80)
@@ -1476,7 +1477,7 @@ def result(ctx, service, quality, range_, wanted, alang, slang, audio_only, subs
                 log.error("=" * 80)
                 for track in title.tracks:
                     track.delete()
-                return
+                sys.exit(1)
             log.info("=" * 80)
             log.info(f"✓ ALL COMPLETE: {len(track_list)} tracks downloaded successfully")
             log.info("=" * 80)

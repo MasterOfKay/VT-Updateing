@@ -129,6 +129,13 @@ def scan_line(line):
     return None
 
 
+def reports_failure(line):
+    """
+    Returns True if the line indicates a download failure.
+    """
+    return "DOWNLOAD FAILED" in line
+
+
 def wanted_start(wanted):
     """The first episode a -w value asks for, e.g. "S02E05-S03" -> (2, 5), "S04" -> (4, 1);
     None if it doesn't name one (empty, exclusions only, invalid)."""

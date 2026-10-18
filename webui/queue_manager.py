@@ -90,6 +90,7 @@ class Job:
     _subscribers: list = field(default_factory=list, repr=False, compare=False)
     _lock: threading.Lock = field(default_factory=threading.Lock, repr=False, compare=False)
     _cancel_requested: bool = field(default=False, repr=False, compare=False)
+    _saw_failure: bool = field(default=False, repr=False, compare=False)  # see retry.reports_failure
 
     def to_dict(self):
         return {
@@ -623,7 +624,7 @@ class JobQueue:
             job.status = "cancelled"
         elif proc.returncode == STOP_EXIT_CODE and job.stop_requested:
             job.status = "stopped"  # finished an episode and stopped before the next, as asked
-        elif proc.returncode == 0:
+        elif proc.returncode == 0 and not job._saw_failure:
             job.status = "done"
         else:
             job.status = "failed"
@@ -667,6 +668,8 @@ class JobQueue:
         """Keep job.current_episode/last_season up to date, saving each change - so
         after a crash the saved queue still knows where to resume."""
         self._track_name(job, line)
+        if retry.reports_failure(line):
+            job._saw_failure = True
         found = retry.scan_line(line)
         if found is None:
             return
