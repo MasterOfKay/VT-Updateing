@@ -2,6 +2,7 @@
 Get information about available services.
 """
 import importlib
+import re
 from functools import lru_cache
 
 import click
@@ -51,9 +52,10 @@ def _title_hint(cls):
     patterns = getattr(cls, "TITLE_RE", None)
     if not patterns:
         return "Title / URL / ID"
-    if isinstance(patterns, str):
+    if isinstance(patterns, (str, re.Pattern)):
         patterns = [patterns]
-    first = patterns[0].lstrip().lstrip("^")
+    first = getattr(patterns[0], "pattern", patterns[0])  # ParamountPlus uses re.compile()
+    first = first.lstrip().lstrip("^")
     if "https?" in first and not first.startswith("(?:https?"):
         return "Paste the full URL"
     return "Paste the title ID, or a full URL"

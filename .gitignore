@@ -27,6 +27,7 @@ crash_*.log
 
 /webui/queue_state.json*
 /webui/webui_settings.json
+/webui/installed_release.json
 /webui/poster_cache.json
 /webui/pins.json
 *.tmp
@@ -38,3 +39,6 @@ __pycache__/
 .claude/
 .DS_Store
 desktop.ini
+
+RELEASING.md
+/assets/fonts/ReadMe.txt

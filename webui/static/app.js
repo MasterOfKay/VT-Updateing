@@ -316,27 +316,43 @@ function saveDownloadStateSoon() {
   saveStateTimer = setTimeout(saveDownloadState, 300);
 }
 
+// What the page itself prefilled a field with (e.g. -al/-sl/-v from Settings).
+function fieldDefault(el) {
+  if (el.type === "checkbox") return el.defaultChecked;
+  if (el.tagName === "SELECT") {
+    const opt = [...el.options].find((o) => o.defaultSelected) || el.options[0];
+    return opt ? opt.value : "";
+  }
+  return el.defaultValue;
+}
+
 function saveDownloadState() {
   const fields = {};
+  const defaults = {};
   downloadFields().forEach((el) => {
     fields[fieldKey(el)] = el.type === "checkbox" ? el.checked : el.value;
+    defaults[fieldKey(el)] = fieldDefault(el);
   });
   storageSet(DOWNLOAD_STATE_KEY, {
     boot: document.body.dataset.boot,
     fields,
+    defaults,
     probe: typeof probeResult === "undefined" ? null : {
       probeId, probeResult, probeResultId, probeSel, probeTitle, probeEpisode,
-      keysState, keysProbeId, preferredLangs,
+      keysState, keysProbeId,
       steps: document.getElementById("probe-steps") ? document.getElementById("probe-steps").innerHTML : "",
     },
   });
 }
 
-function applyFields(fields, onlySvc) {
+function applyFields(fields, onlySvc, defaults) {
   downloadFields().forEach((el) => {
     const key = fieldKey(el);
     if (!(key in fields) || key === "n:service") return;
     if (onlySvc !== key.startsWith("n:svc__")) return;
+    // Its default was changed in Settings since this was saved: the new default wins,
+    // otherwise the old value would come back on every visit until a restart.
+    if (defaults && key in defaults && defaults[key] !== fieldDefault(el)) return;
     if (el.type === "checkbox") el.checked = !!fields[key];
     else el.value = fields[key];
   });
@@ -350,13 +366,14 @@ function restoreDownloadState() {
     return;
   }
   const fields = state.fields || {};
+  const defaults = state.defaults || null;
   const serviceEl = document.getElementById("service");
   serviceEl.value = fields["n:service"] || "";
-  applyFields(fields, false);
+  applyFields(fields, false, defaults);
   if (typeof updateProbeModes === "function" && document.getElementById("availability")) updateProbeModes();
   // Service options only exist once the service's info has loaded.
   onServiceChange().then(() => {
-    applyFields(fields, true);
+    applyFields(fields, true, defaults);
     updateRangeGating();
     const vEl = document.getElementById("opt_range_");
     if (vEl && "n:range_" in fields) vEl.value = fields["n:range_"];
@@ -367,8 +384,8 @@ function restoreDownloadState() {
 
 function restoreProbeState(saved) {
   if (!saved || !document.getElementById("availability")) return;
+  // preferredLangs isn't restored: it's always the page's current Settings defaults.
   ({ probeId, probeResult, probeResultId, probeSel, probeTitle, probeEpisode, keysState, keysProbeId } = saved);
-  if (saved.preferredLangs) preferredLangs = saved.preferredLangs;
   document.getElementById("probe-steps").innerHTML = saved.steps || "";
   if (probeResult && probeSel) renderProbeResult();
   // A check (or key check) that was still running: pick its progress back up.
@@ -1995,13 +2012,15 @@ function loadUpdates(force) {
     .then((info) => {
       document.getElementById("update-repo").textContent = info.repo;
       const when = info.checked_at ? new Date(info.checked_at * 1000).toLocaleString() : "never";
+      const newest = info.releases[0];
       status.textContent = info.error ? info.error
-        : info.update_available ? `Version ${info.latest.version} is available. (Checked ${when})`
+        : info.update_available ? `${info.latest.name || info.latest.tag} is available. (Checked ${when})`
+        : !info.installed_known && newest ? `It's not known which release is installed here. Install the newest one (${newest.name || newest.tag}) once, and from then on the Update tab keeps track. (Checked ${when})`
         : `You're on the newest version. (Checked ${when})`;
       document.querySelector("#nav-update .nav-dot").hidden = !info.update_available;
       document.getElementById("update-list").innerHTML = info.releases.length ? info.releases.map((r) => {
         const date = r.published_at ? new Date(r.published_at).toLocaleDateString() : "";
-        const label = r.state === "newer" ? "Install" : r.state === "current" ? "Reinstall" : "Go back to this version";
+        const label = r.state === "newer" || r.state === "available" ? "Install" : r.state === "current" ? "Reinstall" : "Go back to this version";
         return `
           <div class="release release-${r.state}">
             <div class="release-head">

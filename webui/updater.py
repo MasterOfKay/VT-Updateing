@@ -1,19 +1,19 @@
 """
 Version / update control (the Update tab).
 
-- The installed version is the VERSION file in the project root.
-- Available versions are the GitHub releases of UPDATE_REPO. A release marked
-  "pre-release" on GitHub is an experimental build: only offered when the
-  "include pre-releases" setting is on. Tags are versions: v1.0.0, v1.1.0-beta.1, ...
+- Available versions are the GitHub releases of UPDATE_REPO, newest first by the date
+  they were published. Tags and names can be anything ("Stable", "v1.2", "Fix for X").
+  A release marked "pre-release" on GitHub is an experimental build: only offered when
+  the "include pre-releases" setting is on.
+- The installed release is remembered in INSTALLED_FILE when it's installed from the
+  Update tab. Until then (a fresh download or git clone) the VERSION file is matched
+  against the releases' tags and names; if nothing matches, it's unknown.
 - Installing downloads the release (a .zip attached to it, if there is one, otherwise
   GitHub's source zip of the tag), backs up every file it's about to replace into
   backups/, and copies the new files over the old ones - never touching anything in
   PROTECTED (configs with credentials, services, devices, cookies, key vault, binaries,
   downloads, the web UI's saved queue/settings, ...). Files a release no longer has are
   left in place, not deleted. A restart of the web UI then loads the new code.
-
-Publishing an update: bump VERSION, commit, push, and create a GitHub release whose
-tag is the new version (tick "Set as a pre-release" for an experimental build).
 """
 import io
 import json
@@ -29,6 +29,7 @@ UPDATE_REPO = "MasterOfKay/VT-Updateing"
 RELEASES_URL = f"https://api.github.com/repos/{UPDATE_REPO}/releases?per_page=50"
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
 VERSION_FILE = PROJECT_ROOT / "VERSION"
+INSTALLED_FILE = PROJECT_ROOT / "webui" / "installed_release.json"
 BACKUP_DIR = PROJECT_ROOT / "backups"
 CACHE_SECONDS = 6 * 3600  # automatic checks (the nav badge); "Check for updates" forces one
 
@@ -43,7 +44,7 @@ PROTECTED_DIRS = (
 PROTECTED_FILES = (
     "vinetrimmer.yml", "vinetrimmer/vinetrimmer.yml",
     "webui/queue_state.json", "webui/webui_settings.json", "webui/poster_cache.json",
-    "webui/pins.json",
+    "webui/pins.json", "webui/installed_release.json",
 )
 DEPENDENCY_FILES = ("pyproject.toml", "poetry.lock", "uv.lock")
 
@@ -52,29 +53,40 @@ _cache = {"at": 0, "releases": None, "error": None}
 _install_lock = threading.Lock()
 
 
-def current_version():
+def _version_file():
     try:
-        return VERSION_FILE.read_text(encoding="utf-8").strip() or "0.0.0"
+        return VERSION_FILE.read_text(encoding="utf-8").strip()
     except OSError:
-        return "0.0.0"
+        return ""
 
 
-def parse_version(text):
-    """A comparable version for "v1.2.0", "1.2.0-beta.3", "1.2" ... (None if it isn't one)."""
-    text = (text or "").strip().lstrip("vV")
+def installed_release():
+    """{tag, name, published_at} of the release last installed from the Update tab, or None."""
     try:
-        from packaging.version import InvalidVersion, Version
-        try:
-            return Version(text)
-        except InvalidVersion:
-            return None
-    except ImportError:  # fallback: numbers only, pre-releases sort before their release
-        m = re.match(r"^(\d+(?:\.\d+)*)(?:[-.]?([a-zA-Z]+)\.?(\d*))?$", text)
-        if not m:
-            return None
-        nums = tuple(int(x) for x in m.group(1).split(".")) + (0,) * 3
-        pre = (0, m.group(2) or "", int(m.group(3) or 0)) if m.group(2) else (1, "", 0)
-        return nums[:3] + pre
+        data = json.loads(INSTALLED_FILE.read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return None
+    return data if isinstance(data, dict) and data.get("tag") else None
+
+
+def _remember_installed(release):
+    data = {k: release.get(k) for k in ("tag", "name", "published_at")}
+    tmp = INSTALLED_FILE.with_name(INSTALLED_FILE.name + ".tmp")
+    tmp.write_text(json.dumps(data, indent=2), encoding="utf-8")
+    os.replace(tmp, INSTALLED_FILE)
+
+
+def current_version():
+    """What's installed, for display: the installed release's name, else VERSION."""
+    rec = installed_release()
+    if rec:
+        return rec.get("name") or rec["tag"]
+    return _version_file() or "unknown"
+
+
+def _same(a, b):
+    norm = lambda t: (t or "").strip().lower().lstrip("v")
+    return bool(norm(a)) and norm(a) == norm(b)
 
 
 def _request(url, timeout=15):
@@ -90,13 +102,9 @@ def _fetch_releases():
     for r in data:
         if r.get("draft"):
             continue
-        version = parse_version(r.get("tag_name"))
-        if version is None:
-            continue
         zip_asset = next((a for a in r.get("assets") or [] if a.get("name", "").lower().endswith(".zip")), None)
         releases.append({
             "tag": r.get("tag_name"),
-            "version": str(r.get("tag_name") or "").lstrip("vV"),
             "name": r.get("name") or r.get("tag_name"),
             "prerelease": bool(r.get("prerelease")),
             "published_at": r.get("published_at"),
@@ -104,12 +112,13 @@ def _fetch_releases():
             "url": r.get("html_url"),
             "download": zip_asset["browser_download_url"] if zip_asset else r.get("zipball_url"),
         })
-    releases.sort(key=lambda r: parse_version(r["tag"]), reverse=True)
+    releases.sort(key=lambda r: r["published_at"] or "", reverse=True)
     return releases
 
 
 def releases(force=False, include_prerelease=False):
-    """{current, releases: [... with "state": newer/current/older], latest, update_available,
+    """{current, installed_known, releases: [... with "state": newer/current/older, or
+    "available" when it isn't known which one is installed], latest, update_available,
     checked_at, error}. Cached; force=True asks GitHub right away."""
     with _lock:
         stale = time.time() - _cache["at"] > (60 if force else CACHE_SECONDS)
@@ -124,20 +133,29 @@ def releases(force=False, include_prerelease=False):
         error = _cache["error"]
         checked_at = _cache["at"]
 
-    current = current_version()
-    cur = parse_version(current)
+    installed = installed_release()
+    if installed is None:
+        version = _version_file()
+        installed = next((r for r in found if _same(r["tag"], version) or _same(r["name"], version)), None)
     out = []
     for r in found:
-        v = parse_version(r["tag"])
-        state = "current" if v == cur else "newer" if cur is None or v > cur else "older"
+        if installed is None:
+            state = "available"
+        elif r["tag"] == installed["tag"]:
+            state = "current"
+        elif (r["published_at"] or "") > (installed.get("published_at") or ""):
+            state = "newer"
+        else:
+            state = "older"
         # Pre-releases are only offered when asked for - but the installed one (and older
         # ones, for going back) always show.
-        if r["prerelease"] and not include_prerelease and state == "newer":
+        if r["prerelease"] and not include_prerelease and state in ("newer", "available"):
             continue
         out.append({**r, "state": state})
     newer = [r for r in out if r["state"] == "newer"]
     return {
-        "current": current, "repo": UPDATE_REPO, "releases": out,
+        "current": current_version(), "installed_known": installed is not None,
+        "repo": UPDATE_REPO, "releases": out,
         "latest": newer[0] if newer else None, "update_available": bool(newer),
         "checked_at": checked_at, "error": error,
     }
@@ -194,7 +212,8 @@ def install(tag, include_prerelease=False):
         # Back up everything about to be replaced, then write.
         BACKUP_DIR.mkdir(exist_ok=True)
         stamp = time.strftime("%Y%m%d-%H%M%S")
-        backup_path = BACKUP_DIR / f"before-{release['version']}-from-{old_version}-{stamp}.zip"
+        safe = lambda t: re.sub(r"[^\w.-]+", "_", t)[:40]
+        backup_path = BACKUP_DIR / f"before-{safe(release['tag'])}-from-{safe(old_version)}-{stamp}.zip"
         changed, added = 0, 0
         with zipfile.ZipFile(backup_path, "w", zipfile.ZIP_DEFLATED) as backup:
             for name, rel in files:
@@ -214,9 +233,10 @@ def install(tag, include_prerelease=False):
         if not changed:
             backup_path.unlink(missing_ok=True)
 
+        _remember_installed(release)
         deps = [f for f in DEPENDENCY_FILES if _read(PROJECT_ROOT / f) != before[f]]
         return {
-            "installed": release["version"], "previous": old_version,
+            "installed": release["name"], "previous": old_version,
             "changed": changed, "added": added,
             "backup": str(backup_path) if changed else None,
             "dependencies_changed": deps,
