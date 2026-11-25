@@ -44,6 +44,17 @@ downloads:
   progress_display:
     default: true
 
+# Mark uniform padding around the picture as cropped when muxing. Lossless:
+# the video stream is untouched, only the display dimensions change.
+#   'auto' - measure it per title with ffmpeg
+#   'none' - leave the frame alone
+#   'L,T,R,B' - fixed pixel counts
+crop:
+  mode:
+    default: 'none'
+    # YouTube hase variable blocks wich gets muxed in a 1080p container when it is smaler or bigger actally.
+    YouTube: 'auto'
+
 downloader:
   # Choose downloader for each service: 'aria2c' or 'N_m3u8DL-RE'
   # N_m3u8DL-RE is better for HLS/DASH streams and Smooth Streaming (ISM)

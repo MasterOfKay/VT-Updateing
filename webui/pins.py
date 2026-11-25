@@ -170,8 +170,11 @@ class Pins:
             pin = self._pins.get(pin_id)
             if not pin:
                 return None
-            pin["interval_hours"] = max(1, min(24 * 14, int(hours)))
-            if pin.get("last_check_at") and not self._active_job(pin):
+            # 0 = manual: never checked automatically, only with "Check now".
+            pin["interval_hours"] = max(0, min(24 * 366, int(hours)))
+            if not pin["interval_hours"]:
+                pin["next_check_at"] = None
+            elif pin.get("last_check_at") and not self._active_job(pin):
                 pin["next_check_at"] = self._next_check(pin, pin["last_check_at"])
         self._save()
         return pin
@@ -250,6 +253,8 @@ class Pins:
         self._save()
 
     def _next_check(self, pin, after):
+        if pin.get("interval_hours", 24) == 0:
+            return None
         nxt = after + pin.get("interval_hours", 24) * 3600
         air = ((pin.get("air") or {}).get("next") or {})
         airstamp = air.get("airstamp_ts")

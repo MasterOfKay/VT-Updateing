@@ -243,7 +243,7 @@ pre {
 
 .job-header { display: flex; gap: 16px; align-items: flex-start; background: var(--bg-panel);
   border: 1px solid var(--border); border-radius: 10px; padding: 14px 16px; margin: 0 0 14px; }
-.job-poster { width: 84px; border-radius: 6px; flex: 0 0 auto; box-shadow: 0 2px 10px rgba(0,0,0,.4); }
+.job-poster { width: 128px; max-height: 192px; object-fit: cover; border-radius: 6px; flex: 0 0 auto; box-shadow: 0 2px 10px rgba(0,0,0,.4); }
 .job-header-main { flex: 1; min-width: 0; }
 .job-header-title { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; }
 .job-name { font-size: 18px; font-weight: 650; overflow-wrap: anywhere; }
@@ -412,3 +412,39 @@ details.collapsible > fieldset { margin-top: 8px; }
 .pin-actions { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; justify-content: flex-end; }
 .pin-actions select { background: var(--bg-input); color: var(--text); border: 1px solid var(--border); border-radius: 6px; padding: 4px; }
 .pin-badge { font-size: 11px; padding: 1px 8px; border-radius: 999px; background: #24405c; color: #8ec4ff; }
+
+/* ---- Queue: use the width, bigger posters ---- */
+.content.content-wide { max-width: min(1800px, 98vw); }
+.job-table { table-layout: fixed; }
+.job-table col.col-service { width: 7%; }
+.job-table col.col-title { width: 34%; }
+.job-table col.col-status { width: 9%; }
+.job-table col.col-command { width: 38%; }
+.job-table col.col-actions { width: 12%; }
+.job-table .job-thumb { width: 96px; height: 144px; border-radius: 6px; }
+.job-table .job-title { gap: 14px; }
+.job-table .job-title-name { font-size: 15px; }
+.job-table .job-title-url { font-size: 12px; }
+.job-table td { overflow-wrap: anywhere; }
+.job-table td.actions-cell { display: table-cell; }
+.job-table td.actions-cell > * { margin: 0 4px 4px 0; }
+.pin-card .job-thumb { width: 72px; height: 108px; border-radius: 6px; }
+.pin-custom { display: inline-flex; gap: 4px; align-items: center; font-size: 12px; color: var(--text-dim); }
+.pin-custom input { width: 4em; background: var(--bg-input); border: 1px solid var(--border); border-radius: 6px; padding: 3px 6px; color: var(--text); }
+@media (max-width: 1000px) {
+  .job-table { table-layout: auto; }
+  .job-table col { width: auto; }
+}
+
+/* ---- Availability: season / episode pickers ---- */
+.recheck-row { display: flex; flex-wrap: wrap; gap: 10px; align-items: center; width: 100%; }
+.recheck-row label { display: inline-flex; gap: 6px; align-items: center; color: var(--text-dim); font-size: 13px; }
+.recheck-row select { background: var(--bg-input); border: 1px solid var(--border); border-radius: 6px; padding: 4px 8px; color: var(--text); }
+.recheck-row select:disabled { opacity: 0.5; }
+
+/* ---- Console: how far into the selected episodes ---- */
+.job-episodes { margin-top: 6px; font-size: 13px; color: var(--text); }
+.job-episodes[hidden] { display: none; }
+.episode-progress-text strong { color: var(--accent); }
+.episode-progress-bar { display: block; height: 5px; margin-top: 5px; border-radius: 3px; background: var(--bg-input); overflow: hidden; max-width: 520px; }
+.episode-progress-bar > span { display: block; height: 100%; background: var(--accent); }

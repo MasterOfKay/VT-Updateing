@@ -79,6 +79,7 @@ class Job:
     pin_id: Optional[str] = None  # the pinned show this job checks/downloads for (pins.py)
     current_episode: Optional[tuple] = None
     last_season: Optional[int] = None
+    episodes: Optional[dict] = None
     temp_dir: Optional[str] = field(default=None, repr=False)
     temp_before: Optional[dict] = field(default=None, repr=False)
     display_name: Optional[str] = None
@@ -108,6 +109,7 @@ class Job:
             "retried_by": self.retried_by,
             "resume_from": "S{:02}E{:02}".format(*self.resume_point) if self.resume_point else None,
             "current_episode": "S{:02}E{:02}".format(*self.current_episode) if self.current_episode else None,
+            "episodes": self.episodes,
             "display_name": self.display_name,
             "display_year": self.display_year,
             "poster": self.poster,
@@ -121,7 +123,7 @@ class Job:
     _STATE_FIELDS = (
         "id", "service", "title", "argv", "command", "status", "created_at", "started_at",
         "finished_at", "returncode", "form", "attempt", "retry_of", "retried_by",
-        "resume_point", "auto_streak", "current_episode", "last_season", "temp_dir", "temp_before",
+        "resume_point", "auto_streak", "current_episode", "last_season", "episodes", "temp_dir", "temp_before",
         "display_name", "display_year", "poster", "poster_checked", "continuation", "pin_id",
     )
 
@@ -668,6 +670,7 @@ class JobQueue:
         """Keep job.current_episode/last_season up to date, saving each change - so
         after a crash the saved queue still knows where to resume."""
         self._track_name(job, line)
+        self._track_episodes(job, line)
         if retry.reports_failure(line):
             job._saw_failure = True
         found = retry.scan_line(line)
@@ -678,12 +681,46 @@ class JobQueue:
             setattr(job, name, value)
             self._save()
 
+    _SELECTED = re.compile(r"Selected Episodes: (\d+) of (\d+) \(first (S\d+E\d+), last (S\d+E\d+)\)")
+    _SELECTED_SEASONS = re.compile(r"Selected By Season: (.*)")
+    _SELECTED_SEASON = re.compile(r"(\d+) \((\d+); last E(\d+)\)")
+    _EPISODE_OF = re.compile(r"Episode (\d+) of (\d+) selected")
+
+    def _track_episodes(self, job, line):
+        """Position inside the selected episodes (see Job.episodes)."""
+        if "elected" not in line:
+            return
+        clean = retry.strip_ansi(line)
+        m = self._SELECTED.search(clean)
+        if m:
+            job.episodes = {"index": 0, "total": int(m.group(1)), "first": m.group(3),
+                            "last": m.group(4), "seasons": {}}
+            self._save()
+            return
+        m = self._SELECTED_SEASONS.search(clean)
+        if m and job.episodes is not None:
+            job.episodes["seasons"] = {s: [int(n), int(last)]
+                                       for s, n, last in self._SELECTED_SEASON.findall(m.group(1))}
+            self._save()
+            return
+        m = self._EPISODE_OF.search(clean)
+        if m and job.episodes is not None:
+            job.episodes["index"] = int(m.group(1))
+            job.episodes["total"] = int(m.group(2))
+            self._save()
+
+    _POSTER_LINE = re.compile(r"Poster: (https?://\S+)\s*$")
     _TITLE_LINE = re.compile(r"Titles : Title: (.+?)\s*$")
     _MOVIE_LINE = re.compile(r"Getting tracks for (.+) \((\d{4})\) \[[^\]]*\]\s*$")
 
     def _track_name(self, job, line):
         """The show/movie name (and a movie's year) as vinetrimmer reports it, for
         jobs added without an availability check - then a poster, if enabled."""
+        if "Poster: http" in line and not job.poster:
+            m = self._POSTER_LINE.search(retry.strip_ansi(line))
+            if m:
+                job.poster = m.group(1)
+                self._save()
         if "Titles : Title: " in line and not job.display_name:
             m = self._TITLE_LINE.search(retry.strip_ansi(line))
             if m:

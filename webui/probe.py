@@ -192,6 +192,12 @@ class Probe:
             elif entry and entry["tracks"]["video"] + entry["tracks"]["audio"]:
                 step["status"] = "ok"
                 self._entries.append((step, entry))
+                # If the run was asking for a specific codec/range, check that it got it. If not,
+                # the run is "unavailable" even if it returned some tracks.
+                missing = None if keys else _missing_wanted(step, entry["tracks"]["video"])
+                if missing:
+                    step["status"] = "unavailable"
+                    step["message"] = missing
             else:
                 step["status"] = "unavailable" if proc.returncode in (0, 1) else "error"
                 step["message"] = _reason(step["log"])
@@ -287,6 +293,42 @@ class Probe:
         proc = self._proc
         if proc and proc.poll() is None:
             _kill_tree(proc)
+
+
+_HDR_RANGES = ("HDR10", "HDR10+", "HLG")
+_DV_RANGES = ("DV", "DV+HDR")
+
+
+def _missing_wanted(step, videos):
+    """Why a run's track list doesn't hold what the run was asking for, or None.
+
+    step["vcodec"] / step["range"] are what was passed to -v / -r. A service lists
+    every track it has, so a missing codec or range shows up as the wrong tracks
+    rather than an error.
+    """
+    vcodec, range_ = step.get("vcodec"), step.get("range")
+    if not vcodec:
+        return None
+    name = CODEC_NAMES.get(vcodec, vcodec)
+    mine = [v for v in videos if v["codec"] == name]
+    if not videos:
+        return "No video tracks were returned."
+    if not mine:
+        have = ", ".join(sorted({v["codec"] for v in videos}))
+        return f"No {name} tracks (only {have})."
+    have_ranges = {v["range"] for v in mine}
+    if range_ == "hybrid":
+        hdr = any(r in have_ranges for r in _HDR_RANGES)
+        dv = any(r in have_ranges for r in _DV_RANGES)
+        if not (hdr and dv):
+            if not hdr and not dv:
+                return f"No HDR10 or DV {name} tracks (only SDR)."
+            return f"Only {'HDR10' if hdr else 'DV'} {name} tracks, so no HDR10 + DV hybrid."
+    elif range_ == "hdr10" and not any(r in have_ranges for r in _HDR_RANGES):
+        return f"No HDR10 {name} tracks."
+    elif range_ == "dv" and not any(r in have_ranges for r in _DV_RANGES):
+        return f"No DV {name} tracks."
+    return None
 
 
 def _reason(log_lines):

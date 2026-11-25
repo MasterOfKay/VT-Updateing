@@ -63,6 +63,80 @@ WEBUI_PROGRESS_MARKER = "@@VT_PROGRESS@@ "
 # --stop-file: exit code when it stopped before the next title (not an error, not "done").
 STOP_EXIT_CODE = 3
 
+def _apply_crop(video_tracks, crop):
+    """
+    Set container cropping on the video tracks for --crop.
+
+    `crop` is either "auto", which measures the padding with ffmpeg, or four
+    comma-separated pixel counts (left, top, right, bottom).
+    """
+    log = logging.getLogger("dl")
+
+    if str(crop).strip().lower() in ("auto", "detect"):
+        for track in video_tracks:
+            try:
+                detected = track.detect_crop()
+            except (EnvironmentError, ValueError) as e:
+                log.warning(f" - Could not detect cropping: {e}")
+                continue
+            if detected:
+                log.info(
+                    " + Cropping {}x{} -> {}x{} (l{} t{} r{} b{})".format(
+                        track.width, track.height, *track.display_size, *detected
+                    )
+                )
+            else:
+                log.info(f" + No padding detected in {track.width}x{track.height}, not cropping")
+        return
+
+    try:
+        values = tuple(int(x) for x in str(crop).replace(" ", "").split(","))
+    except ValueError:
+        values = ()
+    if len(values) != 4 or min(values) < 0 or any(v % 2 for v in values):
+        log.warning(
+            f" - Ignoring --crop {crop!r}: expected 'auto' or four even, "
+            "non-negative pixel counts as L,T,R,B"
+        )
+        return
+
+    for track in video_tracks:
+        left, top, right, bottom = values
+        if left + right >= track.width or top + bottom >= track.height:
+            log.warning(
+                f" - Ignoring --crop {crop!r} for a {track.width}x{track.height} "
+                "track: it would crop the whole picture away"
+            )
+            continue
+        track.crop = values
+        log.info(
+            " + Cropping {}x{} -> {}x{} (l{} t{} r{} b{})".format(
+                track.width, track.height, *track.display_size, *values
+            )
+        )
+
+
+def _log_episode_plan(episodes, total_titles):
+    """
+    Log what -w selected, once, before the first episode starts. The web UI's
+    Console reads these two lines to show how far into the selection a run is:
+        Selected Episodes: 124 of 130 (first S06E01, last S12E88)
+        Selected By Season: 6 (40; last E40), 7 (44; last E44)
+    """
+    log = logging.getLogger("dl")
+    episodes = [t for t in episodes if t.type == Title.Types.TV]
+    if not episodes:
+        return
+    label = lambda t: f"S{t.season or 0:02}E{t.episode or 0:02}"  # noqa: E731
+    log.info(f"Selected Episodes: {len(episodes)} of {total_titles} (first {label(episodes[0])}, last {label(episodes[-1])})")
+    seasons = {}
+    for t in episodes:
+        seasons.setdefault(t.season or 0, []).append(t.episode or 0)
+    log.info("Selected By Season: " + ", ".join(
+        f"{season} ({len(numbers)}; last E{max(numbers)})" for season, numbers in sorted(seasons.items())
+    ))
+
+
 def apply_tag_to_file(file_path, tag):
     """Apply group tag to MKV file metadata using mkvpropedit."""
     if not tag:
@@ -305,6 +379,12 @@ def get_credentials(service, profile="default"):
               help="Video Codec, defaults to H264.")
 @click.option("-a", "--acodec", callback=acodec_param, default=None,
               help="Audio Codec")
+@click.option("--crop", "crop", type=str, default=None,
+              help="Mark padding around the picture as cropped when muxing. "
+                   "'auto' detects it per title with ffmpeg, 'none' disables it, "
+                   "or give 'L,T,R,B' in pixels. Lossless: the video is not "
+                   "re-encoded, only the display dimensions change. Defaults to "
+                   "the `crop:` section of the config.")
 @click.option("-vb", "--vbitrate", "vbitrate", type=int,
               default=None,
               help="Video Bitrate, defaults to Max.")
@@ -440,7 +520,7 @@ def dl(ctx, profile, cdm, tag, *_, **__):
 @click.pass_context
 def result(ctx, service, quality, range_, wanted, alang, slang, audio_only, subs_only, chapters_only, audio_description,
            list_, keys, cache, no_cache, no_subs, no_audio, no_video, no_chapters, atmos, vbitrate: int, abitrate: int, channels, no_mux, worst, mux, delay, selected, no_forced,
-           first_title=False, list_json=None, audio_pick=None, stop_file=None, *_, **__):
+           first_title=False, list_json=None, audio_pick=None, stop_file=None, vcodec=None, acodec=None, crop=None, *_, **__):
     def ccextractor():
         log.info("Extracting EIA-608 captions from stream with CCExtractor")
         track_id = f"ccextractor-{track.id}"
@@ -569,9 +649,14 @@ def result(ctx, service, quality, range_, wanted, alang, slang, audio_only, subs
     except ValueError as e:
         raise click.ClickException(f" - {e}")
     json_entries = []
-    wanted_titles = titles.with_wanted(wanted)
+    wanted_titles = list(titles.with_wanted(wanted))
     if first_title:
-        wanted_titles = itertools.islice(wanted_titles, 1)
+        wanted_titles = wanted_titles[:1]
+    else:
+        _log_episode_plan(wanted_titles, len(titles))
+    tv_in_plan = sum(1 for t in wanted_titles if t.type == Title.Types.TV)
+    tv_done = 0
+    poster_logged = False
 
     stopped_early = False
     for title in wanted_titles:
@@ -593,6 +678,9 @@ def result(ctx, service, quality, range_, wanted, alang, slang, audio_only, subs
         first = False
 
         if title.type == Title.Types.TV:
+            tv_done += 1
+            if tv_in_plan > 1 and not first_title:
+                log.info(f"Episode {tv_done} of {tv_in_plan} selected")
             log.info("Getting tracks for {title} S{season:02}E{episode:02}{name} [{id}]".format(
                 title=title.name,
                 season=title.season or 0,
@@ -606,6 +694,14 @@ def result(ctx, service, quality, range_, wanted, alang, slang, audio_only, subs
                 year=f" ({title.year})" if title.year else "",
                 id=title.id,
             ))
+
+        if not poster_logged:
+            # The service's own artwork, for the web UI's queue when no poster lookup
+            # found one (a YouTube playlist, say). Just a URL the browser loads itself.
+            poster_logged = True
+            image = track_export.find_image(getattr(title, "service_data", None))
+            if image:
+                log.info(f"Poster: {image}")
 
         try:
             title.tracks.add(service.get_tracks(title), warn_only=True)
@@ -646,8 +742,11 @@ def result(ctx, service, quality, range_, wanted, alang, slang, audio_only, subs
             is_hybrid_mode = range_ in ["HYBRID", "HYBRIDPLUS"]
             all_audio_tracks = list(title.tracks.audios)
             #title.tracks.select_videos(by_quality=quality, by_range=range_, one_only=True)
-            title.tracks.select_videos(by_quality=quality, by_vbitrate=vbitrate, by_range=range_, one_only=not is_hybrid_mode, by_worst=worst)
-            title.tracks.select_audios(by_language=alang, by_bitrate=abitrate, with_atmos=atmos, with_descriptive=False, by_channels=channels)
+            # by_codec with should_fallback: honour --vcodec when the service
+            # offers it, and keep the old behaviour of taking what exists when
+            # it does not, rather than aborting the title.
+            title.tracks.select_videos(by_quality=quality, by_vbitrate=vbitrate, by_range=range_, one_only=not is_hybrid_mode, by_worst=worst, by_codec=vcodec, should_fallback=True)
+            title.tracks.select_audios(by_language=alang, by_bitrate=abitrate, with_atmos=atmos, with_descriptive=False, by_channels=channels, by_codec=acodec, should_fallback=True)
            # title.tracks.select_audios(by_language=alang, with_descriptive=audio_description)
             title.tracks.select_subtitles(by_language=slang, with_cc=True, with_sdh=True, with_forced=False if no_forced else True)
 
@@ -1790,6 +1889,12 @@ def result(ctx, service, quality, range_, wanted, alang, slang, audio_only, subs
                     extension = "m4a"
                 track.move(os.path.join(final_file_path, f"{filename}.{track.id}.{extension}"))
         else:
+            # --crop wins, otherwise the per-service config decides. YouTube
+            # needs it by default: the same series ships some playlists as a
+            # native 1440x1080 and others pillarboxed into a 1920 frame.
+            effective_crop = crop or get_service_setting('crop', 'mode', service_name, 'none')
+            if str(effective_crop).strip().lower() not in ('', 'none', 'off', 'false', '0'):
+                _apply_crop(title.tracks.videos, effective_crop)
             log.info("Muxing tracks into an MKV container")
             muxed_location, returncode = title.tracks.mux(title.filename)
             if returncode == 1:

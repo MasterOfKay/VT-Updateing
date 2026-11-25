@@ -1,5 +1,6 @@
 {% extends "base.html" %}
 {% block title %}Queue | VT.PR.WV{% endblock %}
+{% block main_class %}content-wide{% endblock %}
 {% block content %}
 <h1>Queue</h1>
 <div class="actions">
@@ -16,6 +17,7 @@
   <div id="pin-list" class="pin-list"></div>
 </section>
 <table class="job-table">
+  <colgroup><col class="col-service"><col class="col-title"><col class="col-status"><col class="col-command"><col class="col-actions"></colgroup>
   <thead>
     <tr><th>Service</th><th>Title</th><th>Status</th><th>Command</th><th></th></tr>
   </thead>

@@ -982,6 +982,125 @@ class VideoTrack(Track):
         self.dv = bool(dv)
         self.needs_ccextractor = needs_ccextractor
         self.needs_ccextractor_first = needs_ccextractor_first
+        self.crop = None
+
+    @property
+    def display_size(self):
+        """Width x height after cropping, i.e. the actual picture."""
+        if not self.crop:
+            return self.width, self.height
+        left, top, right, bottom = self.crop
+        return self.width - left - right, self.height - top - bottom
+
+    def detect_crop(self, limit=24, samples=3, frames=120, executable=None):
+        """
+        Find uniform padding around the picture with ffmpeg's cropdetect.
+
+        Needed because a source is not always framed the way its resolution
+        suggests: the same series on YouTube ships some playlists as a native
+        1440x1080 and others as that picture pillarboxed into 1920x1080.
+
+        Sets and returns self.crop as (left, top, right, bottom), or None when
+        the frame is already all picture. Samples several points in the file,
+        because titles and credits are often padded differently to the body.
+        """
+        location = self.locate()
+        if not location:
+            raise ValueError("Cannot detect cropping before the track is downloaded.")
+
+        executable = executable or shutil.which("ffmpeg")
+        if not executable:
+            raise EnvironmentError("FFmpeg executable not found...")
+
+        ffprobe = shutil.which("ffprobe") or os.path.join(
+            os.path.dirname(executable),
+            "ffprobe" + os.path.splitext(executable)[1],
+        )
+        duration = None
+        # cropdetect measures the frame as decoded, which is not always the
+        # track's nominal size: a file that already carries container cropping
+        # decodes smaller. Measure against the decoded frame, or the numbers
+        # below come out as padding that is not there.
+        frame_width, frame_height = self.width, self.height
+        if os.path.isfile(ffprobe):
+            try:
+                duration = float(subprocess.run(
+                    [
+                        ffprobe, "-v", "error", "-show_entries", "format=duration",
+                        "-of", "default=nw=1:nk=1", location,
+                    ],
+                    capture_output=True, text=True, check=True,
+                ).stdout.strip())
+            except (subprocess.CalledProcessError, ValueError, OSError):
+                pass
+        # ffprobe reports the coded size here, cropping included, so ask ffmpeg
+        # what actually comes out of the decoder instead.
+        try:
+            probe = subprocess.run(
+                [executable, "-hide_banner", "-nostdin", "-i", location,
+                 "-frames:v", "1", "-f", "null", "-"],
+                capture_output=True, text=True, errors="replace",
+            )
+            output_section = (probe.stdout + probe.stderr).split("Output #0", 1)
+            if len(output_section) == 2:
+                match = re.search(r"Video:.*?(/d{2,5})x(/d{2,5})", output_section[1])
+                if match:
+                    frame_width, frame_height = int(match.group(1)), int(match.group(2))
+        except OSError:
+            pass
+
+        # Spread the probes over the middle of the file, skipping the first and
+        # last tenth where logos and credits live.
+        if duration and duration > 60:
+            offsets = [duration * (0.2 + 0.6 * i / max(1, samples - 1)) for i in range(samples)]
+        else:
+            offsets = [0]
+
+        counts = defaultdict(int)
+        for offset in offsets:
+            try:
+                proc = subprocess.run(
+                    [
+                        executable, "-hide_banner", "-nostdin",
+                        "-ss", f"{offset:.3f}", "-i", location,
+                        "-vf", f"cropdetect=limit={limit}:round=2:reset=0",
+                        "-frames:v", str(frames), "-f", "null", "-",
+                    ],
+                    capture_output=True, text=True, errors="replace",
+                )
+            except OSError:
+                continue
+            for match in re.finditer(
+                r"crop=(/d+):(/d+):(/d+):(/d+)", proc.stdout + proc.stderr
+            ):
+                counts[tuple(int(x) for x in match.groups())] += 1
+
+        if not counts:
+            return None
+
+        width, height, x_offset, y_offset = max(counts, key=lambda k: counts[k])
+        left, top = x_offset, y_offset
+        right, bottom = frame_width - width - left, frame_height - height - top
+
+        # A few pixels of difference between opposing sides is a dark edge of the
+        # picture, not padding - one episode measured 240 left against 244 right,
+        # which would have shaved 4 columns off the image. Take the smaller side
+        # for both rather than cutting into the picture. A genuinely lopsided
+        # frame is far enough apart to pass through untouched.
+        if 0 < abs(left - right) <= 8:
+            left = right = min(left, right)
+        if 0 < abs(top - bottom) <= 8:
+            top = bottom = min(top, bottom)
+
+        # A negative value means cropdetect and the container disagree about the
+        # frame size; anything odd would shift chroma. Either way, leave it be.
+        if min(left, top, right, bottom) < 0 or any(v % 2 for v in (left, top, right, bottom)):
+            return None
+        if not any((left, top, right, bottom)):
+            return None
+
+        self.crop = (left, top, right, bottom)
+        return self.crop
 
     def __str__(self):
         codec = next((CODEC_MAP[x] for x in CODEC_MAP if (self.codec or "").startswith(x)), self.codec)
@@ -1515,6 +1634,26 @@ class Tracks:
         MenuTrack: 3
     }
 
+    # Matched as substrings against a track's raw codec string, so both the
+    # fourcc a manifest reports (avc1, av01, mp4a) and a plain name work.
+    # select_videos/select_audios referenced these without them existing, which
+    # made --vcodec a silent no-op.
+    VIDEO_CODEC_MAP = {
+        "H264": ["avc", "h264", "h.264"],
+        "H265": ["hvc", "hev", "dvh", "h265", "h.265"],
+        "VP9": ["vp9", "vp09"],
+        "AV1": ["av1", "av01"],
+    }
+    AUDIO_CODEC_MAP = {
+        "AAC": ["mp4a", "aac"],
+        "AC3": ["ac-3", "ac3"],
+        "EC3": ["ec-3", "ec3", "eac3"],
+        "OPUS": ["opus"],
+        "VORB": ["vorbis"],
+        "DTS": ["dts"],
+        "FLAC": ["flac"],
+    }
+
     def __init__(self, *args):
         self.videos = []
         self.audios = []
@@ -1712,7 +1851,7 @@ class Tracks:
                 yield track
 
     def select_videos (self, by_language=None, by_vbitrate=None, by_quality=None, by_worst=None, by_range=None, 
-        one_only: bool = True, by_codec=None,
+        one_only: bool = True, by_codec=None, should_fallback: bool = False,
     ) -> None:
         """Filter video tracks by language and other criteria."""
         if by_quality:
@@ -1740,7 +1879,11 @@ class Tracks:
         if by_worst:
             self.videos = sorted(self.videos, key=lambda x: float(x.bitrate or 0.0), reverse=False)
         if by_codec:
-            codec_videos = list(filter(lambda x: any(y for y in self.VIDEO_CODEC_MAP[by_codec] if y in x.codec), self.videos))
+            wanted = self.VIDEO_CODEC_MAP.get(str(by_codec).upper(), [])
+            codec_videos = [
+                x for x in self.videos
+                if any(y in (x.codec or "").lower() for y in wanted)
+            ]
             if not codec_videos and not should_fallback:
                 raise ValueError(f"There's no {by_codec} video tracks. Aborting.")
             else:
@@ -1833,7 +1976,11 @@ class Tracks:
         if not with_descriptive:
             self.audios = [x for x in self.audios if not x.descriptive]
         if by_codec:
-            codec_audio = list(filter(lambda x: any(y for y in self.AUDIO_CODEC_MAP[by_codec] if y in x.codec), self.audio))
+            wanted = self.AUDIO_CODEC_MAP.get(str(by_codec).upper(), [])
+            codec_audio = [
+                x for x in self.audios
+                if any(y in (x.codec or "").lower() for y in wanted)
+            ]
             if not codec_audio and not should_fallback:
                 raise ValueError(f"There's no {by_codec} audio tracks. Aborting.")
             else:
@@ -1965,6 +2112,10 @@ class Tracks:
                 "--compression", "0:none",  # disable extra compression
             ]
 
+            if getattr(vt, "crop", None):
+                # The crop attribute is expected to be a tuple of four integers (top, bottom, left, right).
+                video_args.extend(["--cropping", "0:{},{},{},{}".format(*vt.crop)])
+
             if getattr(vt, "needs_duration_fix", False):
                 duration_arg = _duration_arg_from_fps(getattr(vt, "fps", None))
                 if duration_arg:
@@ -2064,4 +2215,42 @@ class Tracks:
                     sys.stdout.write("\n")
                 sys.stdout.write(line)
         returncode = p.wait()
+
+        if returncode < 2 and any(getattr(vt, "crop", None) for vt in self.videos):
+            self._strip_display_dimensions(muxed_location)
+
         return muxed_location, returncode
+
+    def _strip_display_dimensions(self, location):
+        """
+        Remove DisplayWidth/DisplayHeight from a cropped file's video tracks.
+
+        mkvmerge always writes them, filled with the coded frame size. Together
+        with cropping that is ambiguous - mpv takes the ratio against the coded
+        frame and stretches the picture, ffmpeg takes it against the cropped one
+        - and with the element absent both arrive at the real picture size.
+        """
+        executable = shutil.which("mkvpropedit")
+        if not executable:
+            tracks_log.warning(
+                " - mkvpropedit not found, leaving the display size in place; "
+                "a cropped track may look stretched in some players"
+            )
+            return
+
+        arguments = [executable, location]
+        for i, vt in enumerate(self.videos, 1):
+            if not getattr(vt, "crop", None):
+                continue
+            arguments.extend([
+                "--edit", f"track:v{i}",
+                "--delete", "display-width",
+                "--delete", "display-height",
+            ])
+
+        result = subprocess.run(arguments, capture_output=True, text=True, errors="replace")
+        if result.returncode >= 2:
+            tracks_log.warning(
+                " - Could not remove the display size from the muxed file: %s",
+                (result.stdout + result.stderr).strip()[-200:],
+            )

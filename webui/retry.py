@@ -51,7 +51,7 @@ def _clean(data, out):
         out["console_view"] = data["console_view"]
     if "pin_check_hours" in data:
         try:
-            out["pin_check_hours"] = max(1, min(24 * 14, int(data["pin_check_hours"])))
+            out["pin_check_hours"] = max(0, min(24 * 366, int(data["pin_check_hours"])))
         except (TypeError, ValueError):
             pass
     if "auto_retry_max" in data:

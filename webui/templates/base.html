@@ -18,7 +18,7 @@
     <a href="{{ url_for('update_page') }}" id="nav-update" class="{{ 'active' if request.path == '/update' else '' }}">Update<span class="nav-dot" hidden></span></a>
   </nav>
 </header>
-<main class="content">
+<main class="content {% block main_class %}{% endblock %}">
   {% block content %}{% endblock %}
 </main>
 <script src="{{ url_for('static', filename='app.js', v=asset_version('app.js')) }}"></script>

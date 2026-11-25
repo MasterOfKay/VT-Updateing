@@ -1,5 +1,17 @@
 # Changelog
 
+## 1.0.3
+
+- YouTube cropping added
+- Que pictures are now bigger
+- Que doesn't jitter anymore
+- Que pinned option expended
+- Downloader experimental updated bugs with wrong showing codecs and flas positives
+- Better logging options
+- Cli/Consol shows now total downloaded and how much is still will download.
+- Posters get now set after a download starts (If not checked with the experimental Availability checker already)
+- Posters now in Consol/Cli
+
 ## 1.0.2
 
 - Fixed a Problem where LInks could not be read as the internal code read it diffrently.

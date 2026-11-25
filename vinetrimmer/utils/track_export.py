@@ -29,6 +29,11 @@ def codec_name(codec):
         return "AV1"
     if low.startswith(("vp09", "vp9")):
         return "VP9"
+    # Not in CODEC_MAP, but H.264 is often written as "h264" or "avc1" in streams.
+    if low.startswith(("hevc", "dvh", "hev", "hvc")):
+        return "H.265"
+    if "h264" in low:
+        return "H.264"
     return next((CODEC_MAP[x] for x in CODEC_MAP if codec.startswith(x)), codec)
 
 
@@ -81,6 +86,13 @@ def find_image(data, depth=0):
         for key, value in data.items():
             if isinstance(value, str) and _IMAGE_KEY.search(str(key)) and _IMAGE_URL.match(value):
                 return value
+            # A list of {"url": ...} under an artwork key (yt-dlp's "thumbnails"):
+            # the last one is the largest.
+            if isinstance(value, list) and _IMAGE_KEY.search(str(key)):
+                urls = [x.get("url") for x in value if isinstance(x, dict) and isinstance(x.get("url"), str)
+                        and _IMAGE_URL.match(x["url"])]
+                if urls:
+                    return urls[-1]
         for value in data.values():
             if isinstance(value, (dict, list)):
                 found = find_image(value, depth + 1)

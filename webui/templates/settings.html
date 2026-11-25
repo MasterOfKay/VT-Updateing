@@ -78,11 +78,17 @@
   <label class="field">
     <span>How often new pins look for new episodes (you can change it for each show on the Queue tab)</span>
     <select id="setting-pin-hours">
+      <option value="0">manual</option>
+      <option value="1">every hour</option>
+      <option value="3">every 3 hours</option>
       <option value="6">every 6 hours</option>
       <option value="12">every 12 hours</option>
       <option value="24">every day</option>
       <option value="48">every 2 days</option>
+      <option value="72">every 3 days</option>
       <option value="168">every week</option>
+      <option value="336">every 2 weeks</option>
+      <option value="720">every month</option>
     </select>
   </label>
   <label class="field field-flag">

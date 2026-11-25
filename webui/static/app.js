@@ -885,6 +885,11 @@ function videoHeights(codec, ranges) {
   return [...hs].sort((a, b) => b - a);
 }
 
+function parseWanted(value) {
+  const m = String(value || "").trim().match(/^S(\d+)(?:E(\d+))?$/i);
+  return m ? { season: Number(m[1]), episode: m[2] ? Number(m[2]) : null } : null;
+}
+
 function formatKbps(kb) {
   return kb >= 1000 ? `${(kb / 1000).toFixed(1)} Mb/s` : `${kb} kb/s`;
 }
@@ -928,11 +933,29 @@ function renderProbeResult() {
     : "";
   const perSeason = seasonNums.map((n) => `<span class="season-count">S${pad(n)}: ${res.seasons[n]}</span>`).join("");
   const episode = isShow && t.season ? `S${pad(t.season)}E${pad(t.episode)}` : "";
+  // Season / episode pickers, filled from what the check found. They set the episode
+  // to check and the -w (wanted) field the download uses.
+  const wantedNow = parseWanted((document.getElementById("opt_wanted") || {}).value);
+  const checkedNow = parseWanted(probeEpisode) || { season: null, episode: null };
+  const pickSeason = wantedNow ? wantedNow.season : checkedNow.season;
+  const pickEpisode = wantedNow ? wantedNow.episode : checkedNow.episode;
   const recheck = isShow ? `
         <div class="recheck">
-          <span class="hint">Check another episode (dubs/subs can differ per season, new episodes may not have them all yet):</span>
-          <input type="text" id="recheck-episode" placeholder="e.g. S02E01" value="${escapeHtml(probeEpisode)}" autocomplete="off">
-          <button type="button" class="chip" data-recheck="1">Check</button>
+          <span class="hint">Pick a season / episode. It's also what gets downloaded (-w), and dubs/subs can differ per season:</span>
+          <div class="recheck-row">
+            <label>Season
+              <select id="pick-season">
+                <option value="">All seasons</option>
+                ${seasonNums.map((n) => `<option value="${n}"${Number(n) === pickSeason ? " selected" : ""}>S${pad(n)} (${res.seasons[n]} eps)</option>`).join("")}
+              </select></label>
+            <label>Episode
+              <select id="pick-episode"${pickSeason ? "" : " disabled"}>
+                <option value="">${pickSeason ? "All episodes" : "(pick a season first)"}</option>
+                ${pickSeason ? Array.from({ length: Math.max(Number(res.seasons[pickSeason]) || 0, pickEpisode || 0) }, (_, i) => i + 1)
+                  .map((n) => `<option value="${n}"${n === pickEpisode ? " selected" : ""}>E${pad(n)}</option>`).join("") : ""}
+              </select></label>
+            <button type="button" class="chip" data-recheck="1">Check this episode</button>
+          </div>
         </div>` : "";
 
   const head = `
@@ -1104,18 +1127,30 @@ function bindProbeResult(box) {
     startProbe({ extend: probeResultId, combos: [b.dataset.checkCombo] });
   }));
   box.querySelectorAll("[data-check-keys]").forEach((b) => b.addEventListener("click", startKeysCheck));
-  const recheckInput = box.querySelector("#recheck-episode");
-  const recheck = () => {
-    document.getElementById("check-episode").value = recheckInput.value.trim().toUpperCase();
-    startProbe();
+  const seasonSel = box.querySelector("#pick-season");
+  const episodeSel = box.querySelector("#pick-episode");
+  const pickedWanted = () => {
+    if (!seasonSel || !seasonSel.value) return "";
+    const pad = (n) => String(n).padStart(2, "0");
+    return `S${pad(seasonSel.value)}${episodeSel && episodeSel.value ? `E${pad(episodeSel.value)}` : ""}`;
   };
-  box.querySelectorAll("[data-recheck]").forEach((b) => b.addEventListener("click", recheck));
-  if (recheckInput) recheckInput.addEventListener("keydown", (e) => {
-    if (e.key === "Enter") {
-      e.preventDefault();
-      recheck();
-    }
+  const applyPicked = () => {
+    // The download follows the pick; an unfinished pick (nothing) leaves -w alone
+    // only when it holds a range this picker can't show.
+    setField("opt_wanted", pickedWanted());
+    schedulePreview();
+    saveDownloadStateSoon();
+  };
+  if (seasonSel) seasonSel.addEventListener("change", () => {
+    if (episodeSel) episodeSel.value = "";
+    applyPicked();
+    rerenderProbe();
   });
+  if (episodeSel) episodeSel.addEventListener("change", applyPicked);
+  box.querySelectorAll("[data-recheck]").forEach((b) => b.addEventListener("click", () => {
+    document.getElementById("check-episode").value = pickedWanted();
+    startProbe();
+  }));
   box.querySelectorAll("[data-audio-lang]").forEach((cb) => {
     cb.addEventListener("click", (e) => e.stopPropagation());
     cb.addEventListener("change", () => {
@@ -1243,6 +1278,7 @@ function initQueuePage() {
   setInterval(refreshJobs, 2000);
   refreshPins();
   setInterval(refreshPins, 5000);
+  document.getElementById("job-table-body").addEventListener("click", onJobTableClick);
   document.getElementById("pin-list").addEventListener("click", onPinAction);
   document.getElementById("pin-list").addEventListener("change", onPinAction);
   document.getElementById("btn-start-queue").addEventListener("click", () => {
@@ -1312,39 +1348,90 @@ function whenText(ts) {
   return `${day} ${time}${h < 48 ? ` (in ${h < 1 ? "<1" : h} h)` : ""}`;
 }
 
-const PIN_INTERVALS = [[6, "6 h"], [12, "12 h"], [24, "day"], [48, "2 days"], [168, "week"]];
+// hours (0 = manual only: never checked automatically, only with "Check now").
+const PIN_INTERVALS = [[0, "manual only"], [1, "every hour"], [3, "every 3 h"], [6, "every 6 h"], [12, "every 12 h"],
+  [24, "every day"], [48, "every 2 days"], [72, "every 3 days"], [168, "every week"], [336, "every 2 weeks"], [720, "every month"]];
+const PIN_UNIT_HOURS = { hours: 1, days: 24, weeks: 168, months: 720 };
+let customPinId = null;  // the pin whose "custom interval" editor is open
+
+function intervalLabel(h) {
+  const preset = PIN_INTERVALS.find(([v]) => v === h);
+  if (preset) return preset[1];
+  for (const [unit, size] of [["month", 720], ["week", 168], ["day", 24]]) {
+    if (h % size === 0) return `every ${h / size} ${unit}s`;
+  }
+  return `every ${h} hours`;
+}
+
+// True while text inside el is selected (or a field in it has focus): the page must
+// not rebuild it then, or the selection / typing is lost.
+function userIsInside(el) {
+  const sel = window.getSelection();
+  if (sel && !sel.isCollapsed && sel.rangeCount && (el.contains(sel.anchorNode) || el.contains(sel.focusNode))) return true;
+  return el.contains(document.activeElement) && /^(INPUT|SELECT|TEXTAREA)$/.test(document.activeElement.tagName);
+}
+
+// Replace a container's content only when it changed.
+function setHtmlIfChanged(el, html) {
+  if (el.dataset.html === html) return;
+  el.dataset.html = html;
+  el.innerHTML = html;
+}
 
 function refreshPins() {
+  const list = document.getElementById("pin-list");
+  if (userIsInside(list)) return;
   fetch("/api/pins")
     .then((r) => (r.ok ? r.json() : []))
     .then((pins) => {
+      if (userIsInside(list)) return;
       const section = document.getElementById("pins");
       section.hidden = !pins.length;
-      document.getElementById("pin-list").innerHTML = pins.map((p) => {
+      setHtmlIfChanged(list, pins.map((p) => {
         const air = p.air && p.air.next
           ? `On TV: S${String(p.air.next.season).padStart(2, "0")}E${String(p.air.next.number).padStart(2, "0")}${p.air.next.name ? ` &ldquo;${escapeHtml(p.air.next.name)}&rdquo;` : ""} &middot; ${whenText(p.air.next.airstamp_ts)}`
           : p.air && p.air.status === "Ended" ? "TVmaze: the show has ended" : "";
         const busy = p.active_job ? `<span class="status status-${p.active_job.status}">${p.active_job.status}</span>` : "";
+        const known = PIN_INTERVALS.some(([h]) => h === p.interval_hours);
         const intervals = PIN_INTERVALS.map(([h, label]) =>
-          `<option value="${h}"${h === p.interval_hours ? " selected" : ""}>${label}</option>`).join("");
+          `<option value="${h}"${h === p.interval_hours ? " selected" : ""}>${label}</option>`).join("") +
+          (known ? "" : `<option value="${p.interval_hours}" selected>${intervalLabel(p.interval_hours)}</option>`) +
+          `<option value="custom">custom&hellip;</option>`;
+        const customEditor = customPinId === p.id ? `
+          <span class="pin-custom">every
+            <input type="number" min="1" max="999" value="3" data-pin-custom-n>
+            <select data-pin-custom-unit>${Object.keys(PIN_UNIT_HOURS).map((u) => `<option value="${u}"${u === "days" ? " selected" : ""}>${u}</option>`).join("")}</select>
+            <button type="button" data-pin-custom-set="${p.id}">Set</button>
+            <button type="button" data-pin-custom-cancel="${p.id}">&times;</button>
+          </span>` : "";
+        const nextCheck = p.interval_hours === 0
+          ? (p.active_job ? "" : ` &middot; automatic checks off, press Check now`)
+          : p.next_check_at && !p.active_job ? ` &middot; next check ${whenText(p.next_check_at)}` : "";
         return `
           <div class="pin-card">
             ${p.poster ? `<img class="job-thumb" src="${escapeHtml(p.poster)}" alt="">` : `<div class="job-thumb job-thumb-empty"></div>`}
             <div class="pin-main">
               <div class="job-title-name">${escapeHtml(p.name || p.title)}${p.year ? ` <span class="job-year">(${p.year})</span>` : ""} ${busy}</div>
               <div class="hint">${escapeHtml(p.service)} &middot; next: <strong>${escapeHtml(p.next_episode || "from the start")}</strong>${p.last_downloaded ? ` &middot; last downloaded ${escapeHtml(p.last_downloaded)}` : ""}</div>
-              <div class="hint">${escapeHtml(p.last_result || "")}${p.next_check_at && !p.active_job ? ` &middot; next check ${whenText(p.next_check_at)}` : ""}</div>
+              <div class="hint">${escapeHtml(p.last_result || "")}${nextCheck}</div>
               ${air ? `<div class="hint pin-air">${air}</div>` : ""}
             </div>
             <div class="pin-actions">
               <button type="button" data-pin-check="${p.id}"${p.active_job ? " disabled" : ""}>Check now</button>
-              <label class="hint">every <select data-pin-interval="${p.id}">${intervals}</select></label>
+              <label class="hint">check <select data-pin-interval="${p.id}">${intervals}</select></label>
+              ${customEditor}
               <button type="button" data-pin-remove="${p.id}">Unpin</button>
             </div>
           </div>`;
-      }).join("");
+      }).join(""));
     })
     .catch(() => {});
+}
+
+function setPinInterval(pinId, hours) {
+  return fetch(`/api/pins/${pinId}/interval`, {
+    method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ hours }),
+  }).then(refreshPins);
 }
 
 function onPinAction(e) {
@@ -1356,9 +1443,24 @@ function onPinAction(e) {
     if (!confirm("Unpin this show? Already queued checks stay in the queue as normal jobs.")) return;
     fetch(`/api/pins/${t.dataset.pinRemove}`, { method: "DELETE" }).then(() => { refreshPins(); refreshJobs(); });
   } else if (e.type === "change" && t.dataset.pinInterval) {
-    fetch(`/api/pins/${t.dataset.pinInterval}/interval`, {
-      method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ hours: Number(t.value) }),
-    }).then(refreshPins);
+    t.blur();  // a focused field holds off the list's refresh
+    if (t.value === "custom") {
+      customPinId = t.dataset.pinInterval;
+      refreshPins();
+      return;
+    }
+    customPinId = null;
+    setPinInterval(t.dataset.pinInterval, Number(t.value));
+  } else if (e.type === "click" && t.dataset.pinCustomSet) {
+    const box = t.closest(".pin-custom");
+    const n = Math.floor(Number(box.querySelector("[data-pin-custom-n]").value));
+    const unit = box.querySelector("[data-pin-custom-unit]").value;
+    if (!(n >= 1)) return;
+    customPinId = null;
+    setPinInterval(t.dataset.pinCustomSet, Math.min(n * PIN_UNIT_HOURS[unit], 24 * 366));
+  } else if (e.type === "click" && t.dataset.pinCustomCancel) {
+    customPinId = null;
+    refreshPins();
   }
 }
 
@@ -1391,75 +1493,91 @@ function renderJobTitle(job) {
   return `<div class="job-title">${poster}<div class="job-title-text">${name}</div></div>`;
 }
 
+// One table row's HTML for a job. Rows are only rewritten when this changes, so text
+// the user has selected (a link to copy, say) survives the page's 2 s refresh.
+function jobRowHtml(job) {
+  const cancellable = job.status === "queued" || job.status === "running";
+  const retryable = ["failed", "cancelled", "interrupted"].includes(job.status) && !job.retried_by;
+  const continuable = job.status === "stopped" && !job.retried_by;
+  // A retry stands in for the attempt it replaces (which is hidden), with a
+  // link to that attempt's log.
+  const retryInfo = job.attempt > 1
+    ? `<div class="hint">${job.continuation ? "continued" : `retry #${job.attempt - 1}`}${job.resume_from ? ` &middot; from ${escapeHtml(job.resume_from)}` : ""}` +
+      (job.retry_of ? ` &middot; <a href="/console?job=${job.retry_of}">previous log</a>` : "") + `</div>`
+    : "";
+  const eps = job.episodes && job.episodes.total && job.episodes.index
+    ? ` &middot; ${job.episodes.index} / ${job.episodes.total}` : "";
+  const statusInfo = job.status === "queued" && job.position
+    ? `<div class="hint">#${job.position} in line</div>`
+    : job.status === "interrupted" && job.current_episode
+      ? `<div class="hint">stopped at ${escapeHtml(job.current_episode)}</div>`
+      : job.status === "stopped" && job.current_episode
+        ? `<div class="hint">before ${escapeHtml(job.current_episode)}</div>`
+        : job.status === "running" && job.stop_requested
+          ? `<div class="hint">stops after this episode</div>`
+          : job.status === "running" && job.current_episode
+            ? `<div class="hint">${escapeHtml(job.current_episode)}${eps}</div>` : "";
+  return `
+    <td>${escapeHtml(job.service || "")}</td>
+    <td>${renderJobTitle(job)}${retryInfo}</td>
+    <td><span class="status status-${job.status}">${job.status}</span>${statusInfo}</td>
+    <td class="cmd"><code>${escapeHtml(job.command)}</code></td>
+    <td class="actions-cell">
+      <a href="/console?job=${job.id}">Console</a>
+      ${cancellable ? `<button data-cancel="${job.id}">Cancel</button>` : ""}
+      ${retryable ? `<button data-retry="${job.id}">Retry</button>` : ""}
+      ${continuable ? `<button data-continue="${job.id}" class="primary">Continue</button>` : ""}
+      ${job.pin_id ? `<span class="pin-badge" title="Part of a pinned show">pinned</span>`
+        : `<button data-pin="${job.id}" title="Pin this show: check for new episodes from now on">Pin</button>`}
+    </td>`;
+}
+
+function onJobTableClick(e) {
+  const btn = e.target.closest("button");
+  if (!btn) return;
+  if (btn.dataset.cancel) {
+    fetch(`/api/jobs/${btn.dataset.cancel}/cancel`, { method: "POST" }).then(refreshJobs);
+  } else if (btn.dataset.pin) {
+    btn.disabled = true;
+    pinJob(btn.dataset.pin).then(() => { refreshJobs(); refreshPins(); });
+  } else if (btn.dataset.continue) {
+    btn.disabled = true;
+    jobAction(btn.dataset.continue, "continue").catch((err) => alert(err.message)).then(refreshJobs);
+  } else if (btn.dataset.retry) {
+    btn.disabled = true;
+    fetch(`/api/jobs/${btn.dataset.retry}/retry`, { method: "POST" })
+      .then(async (r) => {
+        const res = await r.json().catch(() => ({}));
+        if (!r.ok) alert(res.error || "Retry failed (restart the web UI if it was just updated).");
+      })
+      .then(refreshJobs);
+  }
+}
+
 function refreshJobs() {
   refreshQueueState();
+  const body = document.getElementById("job-table-body");
+  if (userIsInside(body)) return;
   fetch("/api/jobs")
     .then((r) => r.json())
     .then((jobs) => {
-      const body = document.getElementById("job-table-body");
-      body.innerHTML = "";
-      orderJobsForTable(jobs).forEach((job) => {
-        const tr = document.createElement("tr");
-        const cancellable = job.status === "queued" || job.status === "running";
-        const retryable = ["failed", "cancelled", "interrupted"].includes(job.status) && !job.retried_by;
-        const continuable = job.status === "stopped" && !job.retried_by;
-        // A retry stands in for the attempt it replaces (which is hidden), with a
-        // link to that attempt's log.
-        const retryInfo = job.attempt > 1
-          ? `<div class="hint">${job.continuation ? "continued" : `retry #${job.attempt - 1}`}${job.resume_from ? ` &middot; from ${escapeHtml(job.resume_from)}` : ""}` +
-            (job.retry_of ? ` &middot; <a href="/console?job=${job.retry_of}">previous log</a>` : "") + `</div>`
-          : "";
-        const statusInfo = job.status === "queued" && job.position
-          ? `<div class="hint">#${job.position} in line</div>`
-          : job.status === "interrupted" && job.current_episode
-            ? `<div class="hint">stopped at ${escapeHtml(job.current_episode)}</div>`
-            : job.status === "stopped" && job.current_episode
-              ? `<div class="hint">before ${escapeHtml(job.current_episode)}</div>`
-              : job.status === "running" && job.stop_requested
-                ? `<div class="hint">stops after this episode</div>` : "";
-        tr.innerHTML = `
-          <td>${escapeHtml(job.service || "")}</td>
-          <td>${renderJobTitle(job)}${retryInfo}</td>
-          <td><span class="status status-${job.status}">${job.status}</span>${statusInfo}</td>
-          <td class="cmd"><code>${escapeHtml(job.command)}</code></td>
-          <td>
-            <a href="/console?job=${job.id}">Console</a>
-            ${cancellable ? `<button data-cancel="${job.id}">Cancel</button>` : ""}
-            ${retryable ? `<button data-retry="${job.id}">Retry</button>` : ""}
-            ${continuable ? `<button data-continue="${job.id}" class="primary">Continue</button>` : ""}
-            ${job.pin_id ? `<span class="pin-badge" title="Part of a pinned show">pinned</span>`
-              : `<button data-pin="${job.id}" title="Pin this show: check for new episodes from now on">Pin</button>`}
-          </td>`;
-        body.appendChild(tr);
+      if (userIsInside(body)) return;  // selecting/copying: try again next round
+      const existing = new Map([...body.children].map((tr) => [tr.dataset.id, tr]));
+      orderJobsForTable(jobs).forEach((job, i) => {
+        let tr = existing.get(job.id);
+        existing.delete(job.id);
+        if (!tr) {
+          tr = document.createElement("tr");
+          tr.dataset.id = job.id;
+        }
+        const html = jobRowHtml(job);
+        if (tr.dataset.html !== html) {
+          tr.dataset.html = html;
+          tr.innerHTML = html;
+        }
+        if (body.children[i] !== tr) body.insertBefore(tr, body.children[i] || null);
       });
-      body.querySelectorAll("[data-cancel]").forEach((btn) => {
-        btn.addEventListener("click", () => {
-          fetch(`/api/jobs/${btn.dataset.cancel}/cancel`, { method: "POST" }).then(refreshJobs);
-        });
-      });
-      body.querySelectorAll("[data-pin]").forEach((btn) => {
-        btn.addEventListener("click", () => {
-          btn.disabled = true;
-          pinJob(btn.dataset.pin).then(() => { refreshJobs(); refreshPins(); });
-        });
-      });
-      body.querySelectorAll("[data-continue]").forEach((btn) => {
-        btn.addEventListener("click", () => {
-          btn.disabled = true;
-          jobAction(btn.dataset.continue, "continue").catch((err) => alert(err.message)).then(refreshJobs);
-        });
-      });
-      body.querySelectorAll("[data-retry]").forEach((btn) => {
-        btn.addEventListener("click", () => {
-          btn.disabled = true;
-          fetch(`/api/jobs/${btn.dataset.retry}/retry`, { method: "POST" })
-            .then(async (r) => {
-              const res = await r.json().catch(() => ({}));
-              if (!r.ok) alert(res.error || "Retry failed (restart the web UI if it was just updated).");
-            })
-            .then(refreshJobs);
-        });
-      });
+      existing.forEach((tr) => tr.remove());
     });
 }
 
@@ -1568,6 +1686,37 @@ function initConsoleView() {
   });
 }
 
+// Where a run is in the episodes it was asked for, from what dl.py reports (see
+// Job.episodes): overall, inside the current season, and the last one it will reach.
+//   Episode 58 of 124 · S09E18 of S09E40 (season 9 of 6-12) · ends at S12E88
+function episodeProgress(job) {
+  const ep = job.episodes;
+  if (!ep || !ep.total) return null;
+  const pad = (n) => String(n).padStart(2, "0");
+  const index = Math.min(ep.index || 0, ep.total);
+  const seasons = Object.keys(ep.seasons || {}).map(Number).sort((a, b) => a - b);
+  const m = /^S(\d+)E(\d+)$/.exec(job.current_episode || "");
+  const season = m ? Number(m[1]) : null;
+  const info = season !== null ? (ep.seasons || {})[season] : null;
+  const parts = [];
+  if (index) parts.push(`Episode <strong>${index}</strong> of <strong>${ep.total}</strong>`);
+  else parts.push(`<strong>${ep.total}</strong> episodes selected`);
+  if (info) {
+    // How many of this season's selected episodes are behind us.
+    const before = seasons.filter((s) => s < season).reduce((sum, s) => sum + ep.seasons[s][0], 0);
+    const inSeason = index ? Math.max(1, Math.min(index - before, info[0])) : null;
+    parts.push(`S${pad(season)}E${m[2]} of S${pad(season)}E${pad(info[1])}` +
+      (inSeason ? ` (${inSeason} / ${info[0]} this season)` : ""));
+  }
+  if (seasons.length > 1 && season !== null) {
+    parts.push(`season ${seasons.indexOf(season) + 1} of ${seasons.length}`);
+  }
+  if (ep.last) parts.push(`ends at ${ep.last}`);
+  const pct = index ? Math.round((index / ep.total) * 100) : 0;
+  return { html: `<span class="episode-progress-text">${parts.join(" &middot; ")}</span>` +
+    `<span class="episode-progress-bar"><span style="width:${pct}%"></span></span>` };
+}
+
 // Header card: real name + poster when known, the URL/ID otherwise.
 function updateJobHeader(job) {
   const header = document.getElementById("job-header");
@@ -1582,6 +1731,10 @@ function updateJobHeader(job) {
   status.className = `status status-${job.status}`;
   const sub = [job.service, job.current_episode, job.display_name ? job.title : null].filter(Boolean);
   document.getElementById("job-sub").textContent = sub.join(" · ");
+  const progress = episodeProgress(job);
+  const progressEl = document.getElementById("job-episodes");
+  progressEl.hidden = !progress;
+  progressEl.innerHTML = progress ? progress.html : "";
   const poster = document.getElementById("job-poster");
   if (job.poster) {
     if (poster.getAttribute("src") !== job.poster) poster.src = job.poster;
