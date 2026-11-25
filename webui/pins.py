@@ -8,11 +8,10 @@ import time
 import urllib.parse
 import urllib.request
 import uuid
-from pathlib import Path
 
-from . import command_builder, retry
+from . import command_builder, paths, retry
 
-PINS_PATH = Path(__file__).resolve().parent / "pins.json"
+PINS_PATH = paths.data_file("pins.json")
 TVMAZE_URL = "https://api.tvmaze.com/singlesearch/shows?q={q}&embed=nextepisode"
 AIR_REFRESH_SECONDS = 12 * 3600
 AFTER_AIR_SECONDS = 2 * 3600  # check this long after the TV air time

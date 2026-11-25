@@ -1,0 +1,376 @@
+"""
+The Discover tab: what's new / popular on the streaming services, and where to get it.
+
+Data comes from JustWatch's GraphQL API - the one justwatch.com itself uses. It isn't a
+documented public API: it can change or stop answering at any time, and JustWatch's terms
+only allow it for personal, non-commercial use. Only what you search for or browse is
+sent; nothing from your configs or accounts.
+
+Every offer's link is rewritten for the matching vinetrimmer service (discover_links.py)
+and checked against that service's own TITLE_RE.
+"""
+import importlib
+import json
+import re
+import threading
+import time
+import urllib.error
+import urllib.request
+from collections import OrderedDict
+from datetime import date, timedelta
+
+from . import discover_links, services_info
+
+API_URL = "https://apis.justwatch.com/graphql"
+IMAGES = "https://images.justwatch.com"
+CACHE_SECONDS = 15 * 60
+PAGE_SIZE = 40
+
+COUNTRIES = [
+    ("DE", "Germany"), ("US", "United States"), ("GB", "United Kingdom"), ("AT", "Austria"),
+    ("CH", "Switzerland"), ("AU", "Australia"), ("BE", "Belgium"), ("BR", "Brazil"), ("CA", "Canada"),
+    ("DK", "Denmark"), ("ES", "Spain"), ("FI", "Finland"), ("FR", "France"), ("IN", "India"),
+    ("IE", "Ireland"), ("IT", "Italy"), ("JP", "Japan"), ("MX", "Mexico"), ("NL", "Netherlands"),
+    ("NO", "Norway"), ("NZ", "New Zealand"), ("PL", "Poland"), ("PT", "Portugal"), ("SE", "Sweden"),
+    ("TR", "Turkey"),
+]
+LANGUAGES = [("en", "English"), ("de", "Deutsch"), ("fr", "Français"), ("es", "Español"),
+             ("it", "Italiano"), ("nl", "Nederlands"), ("pt", "Português"), ("pl", "Polski")]
+
+# JustWatch package (technicalName) -> vinetrimmer service, for the provider filter.
+PACKAGES = {
+    "netflix": "Netflix", "netflixbasicwithads": "Netflix",
+    "amazonprime": "Amazon", "amazonprimevideo": "Amazon", "amazon": "Amazon",
+    "appletvplus": "AppleTVPlus", "itunes": "iTunes", "disneyplus": "DisneyPlus",
+    "crunchyroll": "Crunchyroll", "max": "HBOMax", "hulu": "Hulu",
+    "paramountplus": "ParamountPlus", "paramountpluspremium": "ParamountPlus",
+    "paramountplusessential": "ParamountPlus", "paramountplusbasicwithads": "ParamountPlus",
+    "peacocktv": "Peacock", "peacocktvpremium": "Peacock", "peacocktvpremiumplus": "Peacock",
+    "plutotv": "PLUTO", "tubitv": "TUBI", "youtubefree": "YouTube", "youtubered": "YouTube",
+    "bbc": "BBCiPlayer", "itv": "ITV", "itvpremium": "ITV", "all4": "All4", "all4plus": "All4",
+    "my5": "MY5", "nowtv": "NowTVUK", "skyticket": "WowTV", "wuaki": "RakutenTV",
+    "skyshowtime": "Skyshowtime", "stan": "Stan", "crave": "Crave", "britbox": "BritBox",
+    "viaplay": "Viaplay", "videoland": "Videoland", "rokuchannel": "ROKU",
+    "discoveryplus": "DSCPUS", "discoverypluseurope": "DSCPUS", "discoveryplusus": "DSCPUS",
+    "sonyliv": "Sonyliv", "jiohotstar": "Hotstar", "moviesanywhere": "MoviesAnywhere",
+}
+# The order of the provider buttons; anything else follows alphabetically.
+_SERVICE_ORDER = ("Netflix", "Amazon", "DisneyPlus", "Crunchyroll", "HBOMax", "AppleTVPlus",
+                  "ParamountPlus", "Hulu", "Peacock", "WowTV", "NowTVUK", "Skyshowtime")
+_PAID = ("BUY", "RENT")
+_CINEMA = ("CINEMA",)
+
+
+class DiscoverError(Exception):
+    pass
+
+
+_lock = threading.Lock()
+_cache = OrderedDict()
+
+
+def _gql(query, variables):
+    key = json.dumps([query, variables], sort_keys=True)
+    with _lock:
+        hit = _cache.get(key)
+        if hit and time.time() - hit[0] < CACHE_SECONDS:
+            return hit[1]
+    request = urllib.request.Request(
+        API_URL, data=json.dumps({"query": query, "variables": variables}).encode(),
+        headers={"Content-Type": "application/json", "User-Agent": "Mozilla/5.0"})
+    try:
+        with urllib.request.urlopen(request, timeout=20) as response:
+            body = json.load(response)
+    except urllib.error.HTTPError as e:
+        raise DiscoverError(f"JustWatch answered with an error (HTTP {e.code}).")
+    except (urllib.error.URLError, OSError, ValueError) as e:
+        raise DiscoverError(f"Couldn't reach JustWatch: {e}")
+    if not body.get("data"):
+        message = next((x.get("message") for x in body.get("errors") or []), "no data")
+        raise DiscoverError(f"JustWatch couldn't answer: {message}")
+    with _lock:
+        _cache[key] = (time.time(), body["data"])
+        while len(_cache) > 200:
+            _cache.popitem(last=False)
+    return body["data"]
+
+
+def _installed():
+    return {s["name"] for s in services_info.list_services()}
+
+
+def _image(path, profile="s332"):
+    if not path:
+        return None
+    return IMAGES + path.replace("{profile}", profile).replace("{format}", "jpg")
+
+
+# ---- providers ----
+
+_PACKAGES_QUERY = """query Packages($country: Country!) {
+  packages(country: $country, platform: WEB) { shortName technicalName clearName icon(profile: S100) }
+}"""
+
+
+def providers(country):
+    """The services that exist both in this country's catalogue and in this install:
+    [{service, name, icon, packages}]."""
+    installed = _installed()
+    found = {}
+    for package in _gql(_PACKAGES_QUERY, {"country": country})["packages"]:
+        service = PACKAGES.get(package["technicalName"])
+        if service not in installed:
+            continue
+        entry = found.setdefault(service, {"service": service, "name": package["clearName"],
+                                           "icon": _image(package["icon"]), "packages": []})
+        entry["packages"].append(package["shortName"])
+    order = {name: i for i, name in enumerate(_SERVICE_ORDER)}
+    return sorted(found.values(), key=lambda p: (order.get(p["service"], len(order)), p["name"].lower()))
+
+
+# ---- offers ----
+
+_OFFER_FIELDS = """standardWebURL monetizationType presentationType videoTechnology audioLanguages
+  subtitleLanguages package { shortName technicalName clearName }"""
+_SHORT_OFFER = "standardWebURL monetizationType package { shortName technicalName clearName }"
+
+
+def _title_pattern_matches(service, url):
+    """Whether the service's own TITLE_RE reads this link."""
+    try:
+        module = importlib.import_module(f"vinetrimmer.services.{service.lower()}")
+        patterns = getattr(getattr(module, service), "TITLE_RE", None)
+    except Exception:
+        return False
+    if not patterns:
+        return True
+    if isinstance(patterns, (str, re.Pattern)):
+        patterns = [patterns]
+    return any(re.search(p, url) for p in patterns)
+
+
+def _offers(raw, kind, country):
+    """JustWatch lists one offer per package and quality; this groups them into one row
+    per link a service can use."""
+    installed = _installed()
+    rows = OrderedDict()
+    for offer in raw or []:
+        package = offer.get("package") or {}
+        monetization = offer.get("monetizationType") or ""
+        if monetization in _CINEMA:
+            continue
+        link = discover_links.normalize(offer.get("standardWebURL"), kind, country, package.get("technicalName") or "")
+        if not link or link["service"] not in installed:
+            continue
+        key = (link["service"], link["url"])
+        row = rows.get(key)
+        if not row:
+            usable = _title_pattern_matches(link["service"], link["url"])
+            note = link["note"]
+            if not usable and not link["resolve"] and not note:
+                note = "The downloader doesn't read this link format. Open it and copy the title's link."
+            row = rows[key] = {**link, "note": note, "usable": usable or link["resolve"],
+                               "web_url": offer.get("standardWebURL"), "providers": [], "monetization": [],
+                               "quality": [], "video": [], "audio": [], "subtitles": []}
+        for field, value in (("providers", package.get("clearName")), ("monetization", monetization),
+                             ("quality", (offer.get("presentationType") or "").lstrip("_"))):
+            if value and value not in row[field]:
+                row[field].append(value)
+        for field, values in (("video", offer.get("videoTechnology")), ("audio", offer.get("audioLanguages")),
+                              ("subtitles", offer.get("subtitleLanguages"))):
+            row[field].extend(v for v in values or [] if v and v not in row[field])
+
+    def rank(row):
+        paid = all(m in _PAID for m in row["monetization"]) and bool(row["monetization"])
+        return (not row["usable"], paid, not row["exact"], any("Channel" in p for p in row["providers"]))
+
+    return sorted(rows.values(), key=rank)
+
+
+# ---- listings ----
+
+_CONTENT = "content(country: $country, language: $language) { title originalReleaseYear posterUrl shortDescription }"
+
+_POPULAR_QUERY = f"""query Popular($country: Country!, $language: Language!, $first: Int!, $offset: Int,
+    $filter: TitleFilter, $sortBy: PopularTitlesSorting!) {{
+  popularTitles(country: $country, first: $first, offset: $offset, filter: $filter, sortBy: $sortBy) {{
+    pageInfo {{ hasNextPage }}
+    edges {{ node {{ id objectType {_CONTENT} offers(country: $country, platform: WEB) {{ {_SHORT_OFFER} }} }} }}
+  }}
+}}"""
+
+_NEW_QUERY = f"""query New($country: Country!, $language: Language!, $date: Date!, $first: Int!, $after: String,
+    $filter: TitleFilter) {{
+  newTitles(country: $country, date: $date, first: $first, after: $after, filter: $filter, priceDrops: false,
+      pageType: NEW) {{
+    pageInfo {{ endCursor hasNextPage }}
+    edges {{
+      newOffer(platform: WEB) {{ {_SHORT_OFFER} newElementCount }}
+      node {{
+        ... on Movie {{ id objectType {_CONTENT} }}
+        ... on Season {{ id objectType totalEpisodeCount
+          content(country: $country, language: $language) {{ seasonNumber posterUrl shortDescription }}
+          show {{ id {_CONTENT} }} }}
+      }}
+    }}
+  }}
+}}"""
+
+
+def _service_of(offer, kind, country):
+    package = offer.get("package") or {}
+    link = discover_links.normalize(offer.get("standardWebURL"), kind, country, package.get("technicalName") or "")
+    return link["service"] if link and link["service"] in _installed() else None
+
+
+def _filter(country, services, kind, query=None):
+    available = providers(country)
+    wanted = [p for p in available if not services or p["service"] in services]
+    if not wanted:
+        raise DiscoverError("None of the selected services is available in this country.")
+    out = {"packages": [short for p in wanted for short in p["packages"]]}
+    if kind == "movie":
+        out["objectTypes"] = ["MOVIE"]
+    elif kind == "show":
+        out["objectTypes"] = ["SHOW"]
+    if query:
+        out["searchQuery"] = query
+        # A search is about finding the title: show it wherever it is.
+        if not services:
+            del out["packages"]
+    return out
+
+
+def popular(country, language, services=None, kind=None, query=None, offset=0):
+    """Popular titles, or the search results for query."""
+    data = _gql(_POPULAR_QUERY, {
+        "country": country, "language": language, "first": PAGE_SIZE, "offset": offset,
+        "sortBy": "POPULAR", "filter": _filter(country, services, kind, query),
+    })["popularTitles"]
+    items = []
+    for edge in data["edges"]:
+        node = edge["node"]
+        content = node.get("content") or {}
+        kind_of = "movie" if node.get("objectType") == "MOVIE" else "show"
+        found = []
+        for offer in node.get("offers") or []:
+            service = _service_of(offer, kind_of, country)
+            if service and service not in found:
+                found.append(service)
+        items.append({
+            "id": node["id"], "kind": kind_of, "title": content.get("title"),
+            "year": content.get("originalReleaseYear"), "poster": _image(content.get("posterUrl")),
+            "description": content.get("shortDescription"), "services": found,
+        })
+    return {"items": items, "next": offset + PAGE_SIZE if data["pageInfo"]["hasNextPage"] else None}
+
+
+def new(country, language, services=None, kind=None, day=None, cursor=None):
+    """What the services added on one day (default today). next / earlier say how to
+    get the rest of that day, and the day before it."""
+    try:
+        day = date.fromisoformat(day) if day else date.today()
+    except ValueError:
+        raise DiscoverError("Invalid date.")
+    wanted = _filter(country, services, kind)
+    if kind == "show":
+        wanted["objectTypes"] = ["SHOW_SEASON"]  # new shows are listed season by season
+    data = _gql(_NEW_QUERY, {
+        "country": country, "language": language, "date": day.isoformat(), "first": PAGE_SIZE,
+        "after": cursor, "filter": wanted,
+    })["newTitles"]
+    items = OrderedDict()
+    for edge in data["edges"]:
+        node, offer = edge.get("node") or {}, edge.get("newOffer") or {}
+        if not node.get("id"):
+            continue
+        if node.get("objectType") == "SHOW_SEASON":
+            show = node.get("show") or {}
+            content = show.get("content") or {}
+            season = node.get("content") or {}
+            item = {"id": show.get("id"), "kind": "show", "season": season.get("seasonNumber"),
+                    "new_episodes": offer.get("newElementCount"),
+                    "poster": _image(season.get("posterUrl") or content.get("posterUrl")),
+                    "description": season.get("shortDescription") or content.get("shortDescription")}
+        else:
+            content = node.get("content") or {}
+            item = {"id": node["id"], "kind": "movie", "poster": _image(content.get("posterUrl")),
+                    "description": content.get("shortDescription")}
+        item.update(title=content.get("title"), year=content.get("originalReleaseYear"), services=[])
+        item = items.setdefault((item["id"], item.get("season")), item)
+        service = _service_of(offer, item["kind"], country)
+        if service and service not in item["services"]:
+            item["services"].append(service)
+    page = data["pageInfo"]
+    return {
+        "items": list(items.values()), "date": day.isoformat(),
+        "next": page.get("endCursor") if page.get("hasNextPage") else None,
+        "earlier": (day - timedelta(days=1)).isoformat(),
+    }
+
+
+# ---- one title ----
+
+_DETAIL_QUERY = f"""query Detail($id: ID!, $country: Country!, $language: Language!) {{
+  node(id: $id) {{
+    ... on Movie {{ id objectType {_CONTENT} offers(country: $country, platform: WEB) {{ {_OFFER_FIELDS} }} }}
+    ... on Show {{ id objectType {_CONTENT} offers(country: $country, platform: WEB) {{ {_OFFER_FIELDS} }}
+      seasons {{ id totalEpisodeCount content(country: $country, language: $language) {{ seasonNumber }}
+        offers(country: $country, platform: WEB) {{ {_SHORT_OFFER} }} }} }}
+  }}
+}}"""
+
+_EPISODES_QUERY = f"""query Episodes($id: ID!, $country: Country!, $language: Language!) {{
+  node(id: $id) {{ ... on Season {{ episodes {{
+    content(country: $country, language: $language) {{ episodeNumber title }}
+    offers(country: $country, platform: WEB) {{ {_SHORT_OFFER} }}
+  }} }} }}
+}}"""
+
+_ID = re.compile(r"^[a-z]{2,3}\d+$")
+
+
+def _check_id(value):
+    if not _ID.match(value or ""):
+        raise DiscoverError("Unknown title.")
+
+
+def details(title_id, country, language):
+    _check_id(title_id)
+    node = _gql(_DETAIL_QUERY, {"id": title_id, "country": country, "language": language}).get("node")
+    if not node or not node.get("content"):
+        raise DiscoverError("JustWatch doesn't know this title (any more).")
+    content = node["content"]
+    kind = "movie" if node.get("objectType") == "MOVIE" else "show"
+    seasons = []
+    for season in node.get("seasons") or []:
+        number = (season.get("content") or {}).get("seasonNumber")
+        if number is None:
+            continue
+        seasons.append({
+            "id": season["id"], "number": number, "episodes": season.get("totalEpisodeCount"),
+            # Some services (Amazon) give every season its own link.
+            "links": {o["service"]: o["url"] for o in reversed(_offers(season.get("offers"), kind, country))
+                      if o["usable"]},
+        })
+    return {
+        "id": node["id"], "kind": kind, "title": content.get("title"),
+        "year": content.get("originalReleaseYear"), "poster": _image(content.get("posterUrl"), "s592"),
+        "description": content.get("shortDescription"),
+        "offers": _offers(node.get("offers"), kind, country),
+        "seasons": sorted(seasons, key=lambda s: s["number"]),
+    }
+
+
+def episodes(season_id, country, language):
+    _check_id(season_id)
+    node = _gql(_EPISODES_QUERY, {"id": season_id, "country": country, "language": language}).get("node") or {}
+    out = []
+    for episode in node.get("episodes") or []:
+        content = episode.get("content") or {}
+        if content.get("episodeNumber") is None:
+            continue
+        out.append({"number": content["episodeNumber"], "title": content.get("title"),
+                    "services": sorted({s for s in (_service_of(o, "show", country)
+                                                   for o in episode.get("offers") or []) if s})})
+    return {"episodes": sorted(out, key=lambda e: e["number"])}

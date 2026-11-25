@@ -1,0 +1,3 @@
+# Run inside the Linux container: must keep Unix line endings on Windows too.
+*.sh text eol=lf
+Dockerfile text eol=lf

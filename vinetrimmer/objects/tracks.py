@@ -690,6 +690,16 @@ class Track:
         name = re_name + ".mp4"
         save_path = os.path.join(out, name)
 
+        # Check if a service object is provided in the extra data and if it has a download_track_file method
+        service_obj = (self.extra or {}).get("service")
+        if service_obj is not None and hasattr(service_obj, "download_track_file"):
+            location = service_obj.download_track_file(
+                self, save_path, quiet=quiet, progress_callback=progress_callback
+            )
+            if location:
+                self._location = location
+                return location
+
         # Check if downloader is N_m3u8DL-RE
         # N_m3u8DL-RE needs master playlist URL, while aria2c needs segments
         is_n_m3u8dl = str(downloader).lower() in ["n_m3u8dl-re", "m3u8dl-re", "m3u8dl"]
@@ -847,7 +857,11 @@ class Track:
 
     def delete(self):
         if self._location:
-            os.unlink(self._location)
+            # unlink() is used instead of remove() to avoid issues with read-only files on Windows
+            try:
+                os.unlink(self._location)
+            except FileNotFoundError:
+                pass
             self._location = None
 
     def repackage(self):
@@ -1043,7 +1057,7 @@ class VideoTrack(Track):
             )
             output_section = (probe.stdout + probe.stderr).split("Output #0", 1)
             if len(output_section) == 2:
-                match = re.search(r"Video:.*?(/d{2,5})x(/d{2,5})", output_section[1])
+                match = re.search(r"Video:.*?(\d{2,5})x(\d{2,5})", output_section[1])
                 if match:
                     frame_width, frame_height = int(match.group(1)), int(match.group(2))
         except OSError:
@@ -1071,7 +1085,7 @@ class VideoTrack(Track):
             except OSError:
                 continue
             for match in re.finditer(
-                r"crop=(/d+):(/d+):(/d+):(/d+)", proc.stdout + proc.stderr
+                r"crop=(\d+):(\d+):(\d+):(\d+)", proc.stdout + proc.stderr
             ):
                 counts[tuple(int(x) for x in match.groups())] += 1
 

@@ -418,9 +418,15 @@ class JobQueue:
                 out.append(d)
             return out
 
-    def is_busy(self):
+    def is_busy(self, service=None):
+        """Whether a download is running - with service, only one that uses the same
+        account as that service (see services_info.account_group)."""
+        if service is not None:
+            from .services_info import account_group  # lazy: see retry()
         with self._lock:
-            return any(self._jobs[jid].status == "running" for jid in self._order)
+            return any(self._jobs[jid].status == "running" and
+                       (service is None or account_group(self._jobs[jid].service) == account_group(service))
+                       for jid in self._order)
 
     def get(self, job_id):
         return self._jobs.get(job_id)

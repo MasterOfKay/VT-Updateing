@@ -9,9 +9,10 @@ The retry logic is also used by the web UI's "Retry all failed" button, which re
 import json
 import re
 import threading
-from pathlib import Path
 
-SETTINGS_PATH = Path(__file__).resolve().parent / "webui_settings.json"
+from . import paths
+
+SETTINGS_PATH = paths.data_file("webui_settings.json")
 DEFAULT_SETTINGS = {
     "auto_retry": False, "auto_retry_max": 3, "cleanup_temp": True,
     # Console tab: "bars" (download progress only), "cli" (log only) or "both".
@@ -22,9 +23,13 @@ DEFAULT_SETTINGS = {
     "update_prereleases": False,
     # Pinned shows: hours between checks, and TVmaze air dates (sends the show name).
     "pin_check_hours": 24, "fetch_air_dates": False,
+    # Availability check: warn when a download of the same service is running.
+    "warn_check_busy": True,
+    # Discover tab: which country's catalogue to show (JustWatch), and the text language.
+    "discover_country": "DE", "discover_language": "en",
 }
 _BOOL_SETTINGS = ("auto_retry", "cleanup_temp", "experimental_check", "fetch_posters",
-                  "update_prereleases", "fetch_air_dates")
+                  "update_prereleases", "fetch_air_dates", "warn_check_busy")
 _CONSOLE_VIEWS = ("bars", "cli", "both")
 _settings_lock = threading.Lock()
 
@@ -47,6 +52,10 @@ def _clean(data, out):
     for key in _BOOL_SETTINGS:
         if key in data:
             out[key] = bool(data[key])
+    if re.match(r"^[A-Z]{2}$", str(data.get("discover_country") or "")):
+        out["discover_country"] = data["discover_country"]
+    if re.match(r"^[a-z]{2}$", str(data.get("discover_language") or "")):
+        out["discover_language"] = data["discover_language"]
     if data.get("console_view") in _CONSOLE_VIEWS:
         out["console_view"] = data["console_view"]
     if "pin_check_hours" in data:

@@ -80,8 +80,8 @@
       </div>
     </div>
     <p class="hint">Shows what's available without downloading anything or asking for keys. For shows, it checks the
-      episode you entered above, or the first episode. Please don't run a check while a download is running
-      (see Settings, Experimental).</p>
+      episode you entered above, or the first episode.{% if settings.warn_check_busy %} Avoid checking a service while
+      it is downloading (see Settings, Experimental).{% endif %}</p>
     <div id="probe-warning" class="probe-warning" hidden></div>
     <div id="probe-steps" class="probe-steps"></div>
     <p id="probe-message" class="message"></p>

@@ -5,9 +5,9 @@ import json
 import os
 import threading
 import time
-from pathlib import Path
+from . import paths
 
-STATE_PATH = Path(__file__).resolve().parent / "queue_state.json"
+STATE_PATH = paths.data_file("queue_state.json")
 VERSION = 1
 _lock = threading.Lock()
 

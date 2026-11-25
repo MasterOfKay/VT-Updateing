@@ -61,9 +61,13 @@
   <p class="hint">Shows what a title offers before you download it: resolutions, codecs, SDR, HDR10, HDR10+,
     DV and DV+HDR, every audio track and every subtitle. You can then pick what you want. It logs in and reads the
     track list, but it never downloads anything and never asks for keys.</p>
-  <p class="hint warn"><strong>Account risk:</strong> every check logs in, just like a download does. Running a check
-    while a download is running looks like several devices at once, and that is riskier for the account.
-    So check first and download afterwards, one thing at a time.</p>
+  <p class="hint warn"><strong>Account risk:</strong> every check logs in, just like a download does. Checking a
+    service while it is downloading looks like several devices on one account at once, and that is riskier for the
+    account. Different services don't affect each other.</p>
+  <label class="field field-flag">
+    <input type="checkbox" id="setting-warn-busy">
+    <span>Warn me before checking a service that is currently downloading</span>
+  </label>
   <label class="field field-flag">
     <input type="checkbox" id="setting-fetch-posters">
     <span>Show posters (looked up on IMDb by the title's name and year)</span>
@@ -71,6 +75,50 @@
   <p class="hint">This sends the name and year to IMDb. When it's off, a poster only shows if the service itself
     provides one.</p>
   <p id="experimental-message" class="message"></p>
+</fieldset>
+
+<fieldset id="api-settings">
+  <legend>External API</legend>
+  <p class="hint">Lets your own scripts, such as a Discord bot, ask for downloads: they send a service, a link or ID and
+    the quality they want, get back what's available, and confirm it. The API runs on its own port and only offers
+    these calls, not this web page. How to use it is described in <code>API.md</code>.</p>
+  <label class="field field-flag">
+    <input type="checkbox" id="api-enabled">
+    <span>Enable the API</span>
+  </label>
+  <label class="field">
+    <span>Who can reach it</span>
+    <select id="api-host">
+      <option value="127.0.0.1">Only programs on this computer (127.0.0.1)</option>
+      <option value="0.0.0.0">Other computers too (0.0.0.0)</option>
+    </select>
+  </label>
+  <label class="field">
+    <span>Port</span>
+    <input type="number" id="api-port" min="1024" max="65535" step="1">
+  </label>
+  <p class="hint warn">Anyone who has the key can make this computer log in to your accounts and download. The API uses
+    plain HTTP: to use it over the internet, put it behind a reverse proxy with HTTPS or a VPN.</p>
+  <label class="field field-flag">
+    <input type="checkbox" id="api-wait">
+    <span>While a service is downloading, hold back API checks for that same service until it's done</span>
+  </label>
+  <label class="field field-flag">
+    <input type="checkbox" id="api-autostart">
+    <span>Start the queue for confirmed requests when it's idle (a paused queue stays paused)</span>
+  </label>
+  <button type="button" id="btn-api-save" class="primary">Save API settings</button>
+  <p id="api-message" class="message"></p>
+  <div id="api-key-block" hidden>
+    <div class="hint">API key</div>
+    <div class="api-key-row">
+      <input type="password" id="api-key" readonly aria-label="API key">
+      <button type="button" id="btn-api-show">Show</button>
+      <button type="button" id="btn-api-copy">Copy</button>
+      <button type="button" id="btn-api-newkey">New key</button>
+    </div>
+    <p class="hint" id="api-url"></p>
+  </div>
 </fieldset>
 
 <fieldset id="pin-settings">

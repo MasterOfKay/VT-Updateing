@@ -6,6 +6,7 @@ document.addEventListener("DOMContentLoaded", () => {
   if (document.getElementById("storage-paths")) initStoragePaths();
   if (document.getElementById("setting-progress-display")) initPreferences();
   if (document.getElementById("update-list")) initUpdatePage();
+  if (document.getElementById("api-settings")) initApiSettings();
   checkUpdateBadge();
 });
 
@@ -98,6 +99,71 @@ function saveStoragePaths() {
     });
 }
 
+/* ---------------- External API ---------------- */
+
+function initApiSettings() {
+  const el = (id) => document.getElementById(id);
+  const message = el("api-message");
+
+  const fill = (s) => {
+    el("api-enabled").checked = s.enabled;
+    el("api-host").value = s.host;
+    el("api-host").disabled = s.host_locked;
+    el("api-port").value = s.port;
+    el("api-port").disabled = s.port_locked;
+    el("api-wait").checked = s.wait_same_service;
+    el("api-autostart").checked = s.auto_start;
+    el("api-key-block").hidden = !s.key;
+    el("api-key").value = s.key;
+    const host = s.host === "0.0.0.0" ? window.location.hostname : "127.0.0.1";
+    el("api-url").textContent = s.running ? `Running at http://${host}:${s.port}/api/v1` : "Not running.";
+    if (s.error) message.textContent = s.error;
+  };
+
+  const send = (path, body) => fetch(path, body === undefined ? {} : {
+    method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body),
+  }).then(async (r) => {
+    const data = await r.json().catch(() => ({}));
+    if (!r.ok) throw new Error(data.error || "Restart the web UI to use the API.");
+    return data;
+  });
+  const failed = (e) => { message.textContent = e.message; };
+
+  send("/api/external-api").then(fill).catch(failed);
+  el("btn-api-save").addEventListener("click", () => {
+    message.textContent = "";
+    send("/api/external-api", {
+      enabled: el("api-enabled").checked, host: el("api-host").value, port: el("api-port").value,
+      wait_same_service: el("api-wait").checked, auto_start: el("api-autostart").checked,
+    }).then((s) => {
+      fill(s);
+      if (!s.error) message.textContent = "Saved.";
+    }).catch(failed);
+  });
+  el("btn-api-show").addEventListener("click", () => {
+    const hidden = el("api-key").type === "password";
+    el("api-key").type = hidden ? "text" : "password";
+    el("btn-api-show").textContent = hidden ? "Hide" : "Show";
+  });
+  el("btn-api-copy").addEventListener("click", () => {
+    const key = el("api-key");
+    // The clipboard API only exists on localhost / HTTPS.
+    const copy = navigator.clipboard ? navigator.clipboard.writeText(key.value) : Promise.reject(new Error());
+    copy.then(() => { message.textContent = "Key copied."; }).catch(() => {
+      key.type = "text";
+      key.select();
+      message.textContent = "Press Ctrl+C to copy the selected key.";
+    });
+  });
+  el("btn-api-newkey").addEventListener("click", () => {
+    if (!confirm("Make a new key? Scripts using the old one stop working.")) return;
+    send("/api/external-api/key", {}).then((s) => {
+      fill(s);
+      message.textContent = "New key made.";
+    }).catch(failed);
+  });
+}
+
 /* ---------------- Preferences (progress display, default alang/slang/vcodec) ---------------- */
 
 function initPreferences() {
@@ -123,6 +189,7 @@ const INSTANT_SETTINGS = {
   "setting-console-view": "console_view",
   "setting-experimental-check": "experimental_check",
   "setting-fetch-posters": "fetch_posters",
+  "setting-warn-busy": "warn_check_busy",
 };
 
 function initInstantSettings() {
@@ -273,7 +340,41 @@ function initDownloadPage() {
   form.addEventListener("input", saveDownloadStateSoon);
   form.addEventListener("change", saveDownloadStateSoon);
   window.addEventListener("pagehide", saveDownloadState);
-  restoreDownloadState();
+  const handOver = new URLSearchParams(window.location.search);
+  if (handOver.get("service") && handOver.get("title")) prefillDownload(handOver);
+  else restoreDownloadState();
+}
+
+// Name / year / poster of a title sent here from the Discover tab.
+let prefillMeta = null;
+
+// A title chosen on the Discover tab: start from a clean form with it filled in.
+function prefillDownload(params) {
+  clearDownloadState();
+  window.addEventListener("pagehide", saveDownloadState);
+  // Reloading the page later must not undo what was changed since.
+  window.history.replaceState(null, "", window.location.pathname);
+  const serviceEl = document.getElementById("service");
+  serviceEl.value = params.get("service");
+  if (serviceEl.value !== params.get("service")) return;
+  document.getElementById("title").value = params.get("title");
+  const wanted = (params.get("wanted") || "").toUpperCase();
+  const wantedEl = document.getElementById("opt_wanted");
+  if (wantedEl) wantedEl.value = wanted;
+  const episodeEl = document.getElementById("check-episode");
+  if (episodeEl && parseWanted(wanted)) episodeEl.value = wanted;
+  prefillMeta = {
+    title: params.get("title"), name: params.get("name") || null,
+    year: Number(params.get("year")) || null, poster: params.get("poster") || null,
+  };
+  if (document.getElementById("availability")) updateProbeModes();
+  onServiceChange().then(() => {
+    saveDownloadState();
+    if (params.get("check") === "1" && document.getElementById("availability")) {
+      startProbe();
+      document.getElementById("availability").scrollIntoView({ behavior: "smooth", block: "start" });
+    }
+  });
 }
 
 /* ---------------- Download page state (kept while switching tabs) ---------------- */
@@ -337,6 +438,7 @@ function saveDownloadState() {
     boot: document.body.dataset.boot,
     fields,
     defaults,
+    prefill: prefillMeta,
     probe: typeof probeResult === "undefined" ? null : {
       probeId, probeResult, probeResultId, probeSel, probeTitle, probeEpisode,
       keysState, keysProbeId,
@@ -367,6 +469,7 @@ function restoreDownloadState() {
   }
   const fields = state.fields || {};
   const defaults = state.defaults || null;
+  prefillMeta = state.prefill || null;
   const serviceEl = document.getElementById("service");
   serviceEl.value = fields["n:service"] || "";
   applyFields(fields, false, defaults);
@@ -732,10 +835,11 @@ function startProbe(extra) {
     msg.textContent = "Tick at least one codec / range combination to check.";
     return;
   }
-  fetch("/api/jobs").then((r) => r.json()).then((jobs) => {
-    if (jobs.some((j) => j.status === "running") &&
-        !confirm("A download is running. Checking now means a second login/manifest request at the same time, " +
-                 "which puts the account at higher risk.\n\nCheck anyway?")) return;
+  fetch(`/api/check-busy?service=${encodeURIComponent(data.service)}`).then((r) => r.json()).then(({ warn }) => {
+    if (warn &&
+        !confirm(`A ${data.service} download is running. Checking now means a second login/manifest request on the ` +
+                 "same account at the same time, which puts it at higher risk.\n\nCheck anyway?\n\n" +
+                 "(You can turn this message off in Settings.)")) return;
     fetch("/api/probe", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
@@ -781,7 +885,7 @@ function renderProbe(p) {
   document.getElementById("btn-check-cancel").hidden = !running;
   const warn = document.getElementById("probe-warning");
   warn.hidden = !(running && p.queue_busy);
-  warn.textContent = "A download is running at the same time as this check. That's riskier for the account.";
+  warn.textContent = `A ${p.service} download is running at the same time as this check. That's riskier for the account.`;
   document.getElementById("probe-steps").innerHTML = p.steps.map((s) => `
     <span class="probe-step probe-${s.status}" title="${escapeHtml(s.message || s.command || "")}">
       <span class="probe-icon">${STEP_ICONS[s.status] || ""}</span>${escapeHtml(s.label)}
@@ -1250,9 +1354,15 @@ function applyProbeSelection() {
 // The check's name/year/poster go along with the job (queue + console), as long as
 // the Title field still holds what was checked.
 function probeMeta() {
-  if (!probeResult) return null;
-  if ((document.getElementById("title").value || "").trim() !== (probeTitle || "").trim()) return null;
-  return { name: probeResult.title.name, year: probeResult.title.year, poster: probeResult.poster || null };
+  const title = (document.getElementById("title").value || "").trim();
+  const prefill = prefillMeta && prefillMeta.title.trim() === title ? prefillMeta : null;
+  if (probeResult && title === (probeTitle || "").trim()) {
+    return {
+      name: probeResult.title.name, year: probeResult.title.year,
+      poster: probeResult.poster || (prefill && prefill.poster) || null,
+    };
+  }
+  return prefill && prefill.name ? { name: prefill.name, year: prefill.year, poster: prefill.poster } : null;
 }
 
 function pinFromForm() {

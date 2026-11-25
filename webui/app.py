@@ -2,9 +2,10 @@ import re
 import uuid
 from pathlib import Path
 
-from flask import Flask, Response, jsonify, render_template, request, stream_with_context
+from flask import Flask, Response, jsonify, render_template, request, send_from_directory, stream_with_context
 
-from . import cleanup, command_builder, config_io, probe, retry, service_checks, services_info
+from . import cleanup, command_builder, config_io, paths, probe, retry, service_checks, services_info
+from . import api_server, api_settings, discover, discover_links
 from . import pins as pins_module
 from . import updater
 from .queue_manager import job_queue
@@ -13,7 +14,7 @@ TEMPLATE_DIR = Path(__file__).resolve().parent / "templates"
 STATIC_DIR = Path(__file__).resolve().parent / "static"
 
 
-def create_app():
+def create_app(ui_port=None):
     app = Flask(__name__, template_folder=str(TEMPLATE_DIR), static_folder=str(STATIC_DIR))
 
     # Browsers cache /static files heuristically (Flask sends no max-age), which kept
@@ -28,6 +29,7 @@ def create_app():
         return {"boot_id": boot_id, "app_version": updater.current_version()}
 
     pins = pins_module.init(job_queue)
+    external_api = api_server.init(job_queue, ui_port)
 
     @app.context_processor
     def _asset_version():
@@ -72,6 +74,58 @@ def create_app():
             advanced_options=[o for o in options if o["section"] == "advanced"],
             settings=retry.get_settings(),
         )
+
+    @app.get("/favicon.ico")
+    def favicon():
+        return send_from_directory(STATIC_DIR, "favicon.ico", max_age=86400)
+
+    @app.get("/discover")
+    def discover_page():
+        return render_template("discover.html", countries=discover.COUNTRIES, languages=discover.LANGUAGES,
+                               settings=retry.get_settings())
+
+    def _discover(call):
+        """Run a Discover lookup for the ?country= / ?language= asked for."""
+        settings = retry.get_settings()
+        country = request.args.get("country") or settings["discover_country"]
+        language = request.args.get("language") or settings["discover_language"]
+        if country not in dict(discover.COUNTRIES) or language not in dict(discover.LANGUAGES):
+            return jsonify({"error": "Unknown country or language."}), 400
+        try:
+            return jsonify(call(country, language))
+        except discover.DiscoverError as e:
+            return jsonify({"error": str(e)}), 502
+
+    @app.get("/api/discover/providers")
+    def discover_providers():
+        return _discover(lambda country, _: discover.providers(country))
+
+    @app.get("/api/discover/titles")
+    def discover_titles():
+        args = request.args
+        services = [s for s in (args.get("services") or "").split(",") if s]
+        kind = args.get("kind") if args.get("kind") in ("movie", "show") else None
+        query = (args.get("q") or "").strip()[:100] or None
+        if args.get("mode") == "new" and not query:
+            return _discover(lambda c, l: discover.new(c, l, services, kind, args.get("date"), args.get("cursor")))
+        offset = max(0, min(2000, args.get("offset", 0, type=int)))
+        return _discover(lambda c, l: discover.popular(c, l, services, kind, query, offset))
+
+    @app.get("/api/discover/title/<title_id>")
+    def discover_title(title_id):
+        return _discover(lambda c, l: discover.details(title_id, c, l))
+
+    @app.get("/api/discover/season/<season_id>")
+    def discover_season(season_id):
+        return _discover(lambda c, l: discover.episodes(season_id, c, l))
+
+    @app.post("/api/discover/resolve")
+    def discover_resolve():
+        data = request.get_json(force=True, silent=True) or {}
+        try:
+            return jsonify(discover_links.resolve(str(data.get("url") or "")))
+        except ValueError as e:
+            return jsonify({"error": str(e)}), 502
 
     @app.get("/queue")
     def queue_page():
@@ -259,15 +313,24 @@ def create_app():
         if p == "nothing":
             return jsonify({"error": "Tick at least one codec / range combination to check."}), 400
         if not p:
-            return jsonify({"error": "A check is already running. Wait for it to finish or cancel it."}), 409
-        return jsonify({**p.to_dict(), "queue_busy": job_queue.is_busy()})
+            return jsonify({"error": "A check is already running (possibly one asked for over the API). "
+                                     "Wait for it to finish."}), 409
+        return jsonify({**p.to_dict(), "queue_busy": _busy_warning(p.service)})
+
+    def _busy_warning(service):
+        return retry.get_settings()["warn_check_busy"] and job_queue.is_busy(service)
 
     @app.get("/api/probe/<probe_id>")
     def get_probe(probe_id):
         p = probe.get(probe_id)
         if not p:
             return jsonify({"error": "not found"}), 404
-        return jsonify({**p.to_dict(), "queue_busy": job_queue.is_busy()})
+        return jsonify({**p.to_dict(), "queue_busy": _busy_warning(p.service)})
+
+    @app.get("/api/check-busy")
+    def check_busy():
+        """Asked right before a check starts: should the page warn first?"""
+        return jsonify({"warn": _busy_warning(request.args.get("service", ""))})
 
     @app.post("/api/probe/<probe_id>/cancel")
     def cancel_probe(probe_id):
@@ -302,7 +365,25 @@ def create_app():
         path = config_io.save_cookie(service_name, profile, file)
         return jsonify({"ok": True, "path": path})
 
-    # ---- api: storage paths (downloads / temp directories) ----
+    @app.get("/api/external-api")
+    def external_api_status():
+        return jsonify(external_api.status())
+
+    @app.post("/api/external-api")
+    def external_api_save():
+        # Only real JSON requests: another website can't send those here unasked.
+        if not request.is_json:
+            return jsonify({"error": "Send JSON."}), 415
+        api_settings.save(request.get_json(silent=True) or {})
+        external_api.apply()
+        return jsonify(external_api.status())
+
+    @app.post("/api/external-api/key")
+    def external_api_new_key():
+        if not request.is_json:
+            return jsonify({"error": "Send JSON."}), 415
+        api_settings.regenerate_key()
+        return jsonify(external_api.status())
 
     # ---- api: updates (Update tab, see updater.py) ----
 
@@ -336,6 +417,8 @@ def create_app():
 
     @app.post("/api/update/restart")
     def update_restart():
+        if paths.in_docker():
+            return jsonify({"error": "Restart the container instead: docker compose restart"}), 400
         busy = _busy_reason()
         if busy:
             return jsonify({"error": busy}), 409

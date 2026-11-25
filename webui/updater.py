@@ -25,11 +25,13 @@ import urllib.request
 import zipfile
 from pathlib import Path, PurePosixPath
 
+from . import paths
+
 UPDATE_REPO = "MasterOfKay/VT-Updateing"
 RELEASES_URL = f"https://api.github.com/repos/{UPDATE_REPO}/releases?per_page=50"
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
 VERSION_FILE = PROJECT_ROOT / "VERSION"
-INSTALLED_FILE = PROJECT_ROOT / "webui" / "installed_release.json"
+INSTALLED_FILE = paths.data_file("installed_release.json")
 BACKUP_DIR = PROJECT_ROOT / "backups"
 CACHE_SECONDS = 6 * 3600  # automatic checks (the nav badge); "Check for updates" forces one
 
@@ -39,12 +41,12 @@ CACHE_SECONDS = 6 * 3600  # automatic checks (the nav badge); "Check for updates
 PROTECTED_DIRS = (
     "vinetrimmer/services", "vinetrimmer/config/services", "vinetrimmer/devices",
     "vinetrimmer/cache", "vinetrimmer/logs", "binaries", "linux-binaries", "downloads",
-    "temp", "NF", "diag", "graphify-out", ".venv", ".git", "backups",
+    "temp", "NF", "diag", "graphify-out", ".venv", ".git", "backups", "docker-data",
 )
 PROTECTED_FILES = (
     "vinetrimmer.yml", "vinetrimmer/vinetrimmer.yml",
     "webui/queue_state.json", "webui/webui_settings.json", "webui/poster_cache.json",
-    "webui/pins.json", "webui/installed_release.json",
+    "webui/pins.json", "webui/installed_release.json", "webui/api_settings.json",
 )
 DEPENDENCY_FILES = ("pyproject.toml", "poetry.lock", "uv.lock")
 
@@ -173,6 +175,9 @@ def _protected(rel):
 def install(tag, include_prerelease=False):
     """Download and install release `tag`. Returns a summary dict; raises ValueError
     with a readable message on problems (nothing is changed then)."""
+    if paths.in_docker():
+        raise ValueError("This web UI runs in Docker, where an update would be lost with the container. Update the "
+                         "project folder on the host, then run: docker compose up -d --build")
     if not _install_lock.acquire(blocking=False):
         raise ValueError("An update is already being installed.")
     try:

@@ -10,6 +10,15 @@ import click
 from vinetrimmer import services as vt_services
 
 
+# Services that log in to one and the same account, so activity on one counts for the other.
+_ACCOUNT_GROUPS = ({"hbomax", "max"}, {"appletvplus", "itunes"})
+
+
+def account_group(service_name):
+    name = (service_name or "").lower()
+    return next((sorted(g)[0] for g in _ACCOUNT_GROUPS if name in g), name)
+
+
 def list_services():
     """All services vinetrimmer knows about (from SERVICE_MAP, already built at import time)."""
     out = [

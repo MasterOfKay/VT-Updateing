@@ -4,13 +4,17 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>{% block title %}VT.PR.WV{% endblock %}</title>
+<link rel="icon" href="{{ url_for('favicon', v=asset_version('favicon.ico')) }}" sizes="32x32">
+<link rel="icon" type="image/svg+xml" href="{{ url_for('static', filename='icon.svg', v=asset_version('icon.svg')) }}">
+<link rel="apple-touch-icon" href="{{ url_for('static', filename='icon-180.png') }}">
 <link rel="stylesheet" href="{{ url_for('static', filename='style.css', v=asset_version('style.css')) }}">
 </head>
 <body data-boot="{{ boot_id }}">
 <header class="topbar">
-  <div class="brand">VT.PR.WV <span class="brand-version">{{ app_version }}</span></div>
+  <div class="brand"><img class="brand-icon" src="{{ url_for('static', filename='icon.svg', v=asset_version('icon.svg')) }}" alt=""> VT.PR.WV <span class="brand-version">{{ app_version }}</span></div>
   <nav class="tabs">
     <a href="{{ url_for('download') }}" class="{{ 'active' if request.path in ('/', '/download') else '' }}">Download</a>
+    <a href="{{ url_for('discover_page') }}" class="{{ 'active' if request.path == '/discover' else '' }}">Discover</a>
     <a href="{{ url_for('queue_page') }}" class="{{ 'active' if request.path == '/queue' else '' }}">Queue</a>
     <a href="{{ url_for('console_page') }}" class="{{ 'active' if request.path == '/console' else '' }}">Console / CLI</a>
     <a href="{{ url_for('credentials_page') }}" class="{{ 'active' if request.path == '/credentials' else '' }}">Credentials</a>
@@ -22,5 +26,6 @@
   {% block content %}{% endblock %}
 </main>
 <script src="{{ url_for('static', filename='app.js', v=asset_version('app.js')) }}"></script>
+{% block scripts %}{% endblock %}
 </body>
 </html>

@@ -43,7 +43,7 @@ _STRIP = ("vcodec", "range_", "quality", "vbitrate", "abitrate", "acodec", "chan
           "audio_only", "subs_only", "chapters_only", "no_subs", "no_audio", "no_video",
           "no_chapters", "keys", "selected", "worst", "audio_pick", "list_", "first_title",
           "cache", "no_cache", "mode", "probe_mode", "combos", "check_quality", "extend", "meta",
-          "check_episode")
+          "check_episode", "runs", "list_quality")
 
 FORCED_OPTIONS = {
     "DisneyPlus": {"svc__tier_unlimits": True, "svc__imax": True},
@@ -57,13 +57,17 @@ _active = None
 
 
 class Probe:
-    def __init__(self, form, mode, combos=None, quality=None, base=None):
+    def __init__(self, form, mode, combos=None, quality=None, base=None, runs=None):
         self.id = uuid.uuid4().hex[:12]
         self.service = form.get("service")
         self.forced_options = dict(FORCED_OPTIONS.get(self.service, {}))
         self.form = {**form, **self.forced_options}
         self.mode = mode
         self.combos = [c for c in (combos or []) if c in NETFLIX_COMBOS]
+        self.runs = list(runs or [])
+        # -q for the H.265 listings (external API): Amazon, for one, only asks for its
+        # 4K manifest when a resolution above 1080 is requested.
+        self.list_quality = form.get("list_quality")
         # Which episode to check (-w, e.g. "S02E01"): a new episode may not have every
         # dub/sub yet, and seasons can differ. None = the first (wanted) title.
         self.episode = (form.get("check_episode") or "").strip().upper() or (base.episode if base else None)
@@ -118,7 +122,8 @@ class Probe:
             # Exactly what's on the form (codec, range, quality, languages, -drm, ...).
             form = {k: v for k, v in self.form.items()
                     if k not in ("list_", "selected", "mode", "probe_mode", "combos",
-                                 "check_quality", "extend", "meta", "no_cache", "check_episode")}
+                                 "check_quality", "extend", "meta", "no_cache", "check_episode",
+                                 "list_quality")}
             form["keys"] = True
             form["cache"] = True  # vaults only - never a license request
         else:
@@ -127,6 +132,8 @@ class Probe:
             if range_:
                 form["range_"] = range_
             form["list_"] = True
+            if self.list_quality and vcodec == "h265":
+                form["quality"] = self.list_quality
         form["first_title"] = True
         if self.episode:
             form["wanted"] = self.episode
@@ -191,6 +198,7 @@ class Probe:
                             "Not every key is in the vaults."
             elif entry and entry["tracks"]["video"] + entry["tracks"]["audio"]:
                 step["status"] = "ok"
+                step["listed"] = True  # came back with a track list
                 self._entries.append((step, entry))
                 # If the run was asking for a specific codec/range, check that it got it. If not,
                 # the run is "unavailable" even if it returned some tracks.
@@ -233,6 +241,10 @@ class Probe:
             if self.service == "Netflix":
                 for codec, range_ in self._netflix_runs():
                     self._run_step(self._add_step(codec, range_))
+            elif self.mode == "runs":
+                for codec, range_ in self.runs:
+                    if self._done_runs.get((codec, range_ or "sdr")) not in ("ok", "unavailable"):
+                        self._run_step(self._add_step(codec, range_))
             elif self.mode == "h264":
                 self._run_step(self._add_step("h264", None))
             else:
@@ -376,7 +388,7 @@ def merge(entries):
     }
 
 
-def start(form, mode=None, combos=None, quality=None, extend=None):
+def start(form, mode=None, combos=None, quality=None, extend=None, runs=None):
     """Start a check. extend: id of an earlier (finished) Netflix check whose result
     this one adds to - used for checking single variants afterwards."""
     global _active
@@ -384,7 +396,7 @@ def start(form, mode=None, combos=None, quality=None, extend=None):
     if mode != "keys":
         if netflix:
             mode = "all" if mode == "all" else "combos"
-        elif mode not in ("h265", "h264", "both"):
+        elif mode not in ("h265", "h264", "both", "runs"):
             mode = "h265"
     base = _probes.get(extend) if extend else None
     if base and (base.status != "done" or base.service != form.get("service") or base.mode == "keys"):
@@ -392,13 +404,13 @@ def start(form, mode=None, combos=None, quality=None, extend=None):
     with _lock:
         if _active is not None:
             return None
-        probe = Probe(form, mode, combos=combos, quality=quality, base=base)
+        probe = Probe(form, mode, combos=combos, quality=quality, base=base, runs=runs)
         if netflix and mode == "combos" and not probe._netflix_runs() and not base:
             return "nothing"
         _probes[probe.id] = probe
         _active = probe
         # Keep only the last few finished checks around.
-        for old in list(_probes)[:-10]:
+        for old in list(_probes)[:-30]:
             if _probes[old].status != "running":
                 del _probes[old]
     threading.Thread(target=probe.run, daemon=True).start()

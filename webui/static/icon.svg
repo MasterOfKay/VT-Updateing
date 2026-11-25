@@ -1,0 +1,11 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64">
+  <!-- VT.PR.WV web UI: a vine leaf with a download arrow -->
+  <defs>
+    <linearGradient id="leaf" x1="0" y1="1" x2="1" y2="0">
+      <stop offset="0" stop-color="#0e8a62"/><stop offset=".55" stop-color="#22b573"/><stop offset="1" stop-color="#8ae879"/>
+    </linearGradient>
+  </defs>
+  <path d="M63 1C28 0 3 14 3 39c0 4.6 1.2 8.800 3.300 12.400L1.500 57.800a3.300 3.300 0 0 0 4.700 4.700l6.400-4.800C16.200 61 21 63 26.500 63 52 63 64 35 63 1Z" fill="url(#leaf)"/>
+  <path d="M33 14v26M20.500 29 33 41.500 45.500 29" fill="none" stroke="#fff" stroke-width="8" stroke-linecap="round" stroke-linejoin="round"/>
+  <path d="M22.500 52h21" stroke="#fff" stroke-width="6.500" stroke-linecap="round"/>
+</svg>

@@ -30,6 +30,10 @@ crash_*.log
 /webui/installed_release.json
 /webui/poster_cache.json
 /webui/pins.json
+/webui/api_settings.json
+/docker-data/
+# installed per machine with npm ci
+/vinetrimmer/pot_provider/server/node_modules/
 *.tmp
 *.update-tmp
 

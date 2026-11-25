@@ -1,0 +1,46 @@
+{% extends "base.html" %}
+{% block title %}Discover | VT.PR.WV{% endblock %}
+{% block main_class %}content-wide{% endblock %}
+{% block content %}
+<div id="discover" data-experimental="{{ '1' if settings.experimental_check else '' }}">
+  <div class="discover-toolbar">
+    <input type="search" id="discover-search" placeholder="Search movies and shows&hellip;" autocomplete="off">
+    <div class="view-switch" role="group" aria-label="List">
+      <button type="button" data-mode="new">New</button>
+      <button type="button" data-mode="popular">Popular</button>
+    </div>
+    <div class="view-switch" role="group" aria-label="Type">
+      <button type="button" data-kind="">All</button>
+      <button type="button" data-kind="movie">Movies</button>
+      <button type="button" data-kind="show">Shows</button>
+    </div>
+    <select id="discover-country" title="Whose catalogue to show">
+      {% for code, name in countries %}
+      <option value="{{ code }}"{% if code == settings.discover_country %} selected{% endif %}>{{ name }}</option>
+      {% endfor %}
+    </select>
+    <select id="discover-language" title="Language of titles and descriptions">
+      {% for code, name in languages %}
+      <option value="{{ code }}"{% if code == settings.discover_language %} selected{% endif %}>{{ name }}</option>
+      {% endfor %}
+    </select>
+  </div>
+
+  <div id="discover-providers" class="provider-bar" aria-label="Services"></div>
+  <p id="discover-message" class="message" aria-live="polite"></p>
+  <div id="discover-results"></div>
+  <div class="discover-more"><button type="button" id="discover-more" hidden></button></div>
+
+  <p class="hint">Data from <a href="https://www.justwatch.com/" target="_blank" rel="noopener">JustWatch</a>. It shows
+    what the chosen country's catalogue offers: you may need a VPN for a country other than yours. What you search and
+    browse here is sent to JustWatch.</p>
+</div>
+
+<dialog id="title-dialog" class="title-dialog">
+  <button type="button" class="dialog-close" id="title-dialog-close" aria-label="Close">&times;</button>
+  <div id="title-dialog-body"></div>
+</dialog>
+{% endblock %}
+{% block scripts %}
+<script src="{{ url_for('static', filename='discover.js', v=asset_version('discover.js')) }}"></script>
+{% endblock %}

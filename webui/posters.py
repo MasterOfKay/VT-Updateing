@@ -7,9 +7,10 @@ import re
 import threading
 import urllib.parse
 import urllib.request
-from pathlib import Path
 
-CACHE_PATH = Path(__file__).resolve().parent / "poster_cache.json"
+from . import paths
+
+CACHE_PATH = paths.data_file("poster_cache.json")
 SUGGEST_URL = "https://v3.sg.media-imdb.com/suggestion/x/{query}.json"
 _lock = threading.Lock()
 _cache = None
