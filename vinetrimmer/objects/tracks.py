@@ -690,8 +690,9 @@ class Track:
         name = re_name + ".mp4"
         save_path = os.path.join(out, name)
 
-        # Check if a service object is provided in the extra data and if it has a download_track_file method
-        service_obj = (self.extra or {}).get("service")
+        # Check if a service object is provided in the extra data and if it has a download_track_file method.
+        # extra is only a dict for some services: the manifest parsers store tuples, strings or playlist objects.
+        service_obj = self.extra.get("service") if isinstance(self.extra, dict) else None
         if service_obj is not None and hasattr(service_obj, "download_track_file"):
             location = service_obj.download_track_file(
                 self, save_path, quiet=quiet, progress_callback=progress_callback
