@@ -14,6 +14,8 @@ Version / update control (the Update tab).
   PROTECTED (configs with credentials, services, devices, cookies, key vault, binaries,
   downloads, the web UI's saved queue/settings, ...). Files a release no longer has are
   left in place, not deleted. A restart of the web UI then loads the new code.
+- In Docker the same, plus what docker_update.py adds: the release is kept in the data
+  volume (so it survives a new container) and backups go there too.
 """
 import io
 import json
@@ -25,7 +27,7 @@ import urllib.request
 import zipfile
 from pathlib import Path, PurePosixPath
 
-from . import paths
+from . import docker_update, paths
 
 UPDATE_REPO = "MasterOfKay/VT-Updateing"
 RELEASES_URL = f"https://api.github.com/repos/{UPDATE_REPO}/releases?per_page=50"
@@ -172,12 +174,91 @@ def _protected(rel):
     return any(rel == d or rel.startswith(d + "/") for d in PROTECTED_DIRS)
 
 
+def release_files(payload):
+    """A downloaded release as (archive, [(entry in the zip, path in the project)]),
+    without anything an update may not touch."""
+    try:
+        archive = zipfile.ZipFile(io.BytesIO(payload))
+    except zipfile.BadZipFile:
+        raise ValueError("The downloaded release isn't a valid zip file.")
+
+    names = [n for n in archive.namelist() if not n.endswith("/")]
+    if not names:
+        raise ValueError("The release zip is empty.")
+    # GitHub's source zips put everything in one top folder ("Owner-Repo-sha/").
+    tops = {n.split("/", 1)[0] for n in names}
+    strip = (tops.pop() + "/") if len(tops) == 1 and all("/" in n for n in names) else ""
+    files = []
+    for n in names:
+        rel = n[len(strip):] if strip and n.startswith(strip) else n
+        parts = PurePosixPath(rel).parts
+        if not rel or ".." in parts or rel.startswith("/") or ":" in parts[0]:
+            continue  # never write outside the project
+        if _protected(rel) or "__pycache__" in parts:
+            continue
+        files.append((n, rel))
+    if not any(rel in ("VERSION", "webui/app.py") for _, rel in files):
+        raise ValueError("This doesn't look like a VT.PR.WV release (no VERSION / webui/app.py in it).")
+    return archive, files
+
+
+def write_files(archive, files, backup_path):
+    """Copy a release's files into the project, after saving what they replace in
+    backup_path. Returns (number changed, [new files]). Undone if a file can't be written."""
+    backup_path.parent.mkdir(parents=True, exist_ok=True)
+    changed, added = 0, []
+    try:
+        with zipfile.ZipFile(backup_path, "w", zipfile.ZIP_DEFLATED) as backup:
+            for name, rel in files:
+                target = PROJECT_ROOT / rel
+                data = archive.read(name)
+                exists = target.exists()
+                if exists:
+                    if target.read_bytes() == data:
+                        continue
+                    backup.write(target, rel)
+                target.parent.mkdir(parents=True, exist_ok=True)
+                tmp = target.with_name(target.name + ".update-tmp")
+                tmp.write_bytes(data)
+                try:
+                    os.replace(tmp, target)
+                except OSError:
+                    tmp.unlink(missing_ok=True)
+                    raise
+                if exists:
+                    changed += 1
+                else:
+                    added.append(rel)
+    except OSError:
+        undo(backup_path, added)
+        raise
+    if not changed:
+        backup_path.unlink(missing_ok=True)
+    return changed, added
+
+
+def undo(backup_path, added):
+    """Take back what write_files did."""
+    for rel in added:
+        (PROJECT_ROOT / rel).unlink(missing_ok=True)
+    if not backup_path.exists():
+        return
+    with zipfile.ZipFile(backup_path) as backup:
+        for rel in backup.namelist():
+            try:
+                (PROJECT_ROOT / rel).write_bytes(backup.read(rel))
+            except OSError:
+                pass  # a file that couldn't be written was never replaced either
+
+
 def install(tag, include_prerelease=False):
     """Download and install release `tag`. Returns a summary dict; raises ValueError
     with a readable message on problems (nothing is changed then)."""
-    if paths.in_docker():
-        raise ValueError("This web UI runs in Docker, where an update would be lost with the container. Update the "
-                         "project folder on the host, then run: docker compose up -d --build")
+    docker = paths.in_docker()
+    image = docker_update.image() if docker else None
+    if docker and image is None:
+        raise ValueError("This container's image is too old to update from here. Rebuild it once: update the project "
+                         "folder on the server, then run: docker compose up -d --build")
     if not _install_lock.acquire(blocking=False):
         raise ValueError("An update is already being installed.")
     try:
@@ -188,63 +269,44 @@ def install(tag, include_prerelease=False):
 
         with _request(release["download"], timeout=120) as resp:
             payload = resp.read()
-        try:
-            archive = zipfile.ZipFile(io.BytesIO(payload))
-        except zipfile.BadZipFile:
-            raise ValueError("The downloaded release isn't a valid zip file.")
-
-        names = [n for n in archive.namelist() if not n.endswith("/")]
-        if not names:
-            raise ValueError("The release zip is empty.")
-        # GitHub's source zips put everything in one top folder ("Owner-Repo-sha/").
-        tops = {n.split("/", 1)[0] for n in names}
-        strip = (tops.pop() + "/") if len(tops) == 1 and all("/" in n for n in names) else ""
-        files = []
-        for n in names:
-            rel = n[len(strip):] if strip and n.startswith(strip) else n
-            parts = PurePosixPath(rel).parts
-            if not rel or ".." in parts or rel.startswith("/") or ":" in parts[0]:
-                continue  # never write outside the project
-            if _protected(rel) or "__pycache__" in parts:
-                continue
-            files.append((n, rel))
-        if not any(rel in ("VERSION", "webui/app.py") for _, rel in files):
-            raise ValueError("This doesn't look like a VT.PR.WV release (no VERSION / webui/app.py in it).")
+        archive, files = release_files(payload)
+        contents = {rel: archive.read(name) for name, rel in files} if docker else {}
+        if docker:
+            docker_update.refuse_if_needs_rebuild(contents, image)
 
         before = {f: _read(PROJECT_ROOT / f) for f in DEPENDENCY_FILES}
         old_version = current_version()
 
         # Back up everything about to be replaced, then write.
-        BACKUP_DIR.mkdir(exist_ok=True)
         stamp = time.strftime("%Y%m%d-%H%M%S")
         safe = lambda t: re.sub(r"[^\w.-]+", "_", t)[:40]
-        backup_path = BACKUP_DIR / f"before-{safe(release['tag'])}-from-{safe(old_version)}-{stamp}.zip"
-        changed, added = 0, 0
-        with zipfile.ZipFile(backup_path, "w", zipfile.ZIP_DEFLATED) as backup:
-            for name, rel in files:
-                target = PROJECT_ROOT / rel
-                data = archive.read(name)
-                if target.exists():
-                    if target.read_bytes() == data:
-                        continue
-                    backup.write(target, rel)
-                    changed += 1
-                else:
-                    added += 1
-                target.parent.mkdir(parents=True, exist_ok=True)
-                tmp = target.with_name(target.name + ".update-tmp")
-                tmp.write_bytes(data)
-                os.replace(tmp, target)
-        if not changed:
-            backup_path.unlink(missing_ok=True)
+        backup_dir = docker_update.BACKUP_DIR if docker else BACKUP_DIR
+        backup_path = backup_dir / f"before-{safe(release['tag'])}-from-{safe(old_version)}-{stamp}.zip"
+        # In a container nobody can repair a web UI that no longer starts: try it first.
+        healthy = docker and docker_update.check_program() is None
+        try:
+            changed, added = write_files(archive, files, backup_path)
+        except PermissionError as e:
+            raise ValueError(f"The program files can't be written here, so nothing was changed: {e}")
+        if healthy:
+            problem = docker_update.check_program()
+            if problem:
+                undo(backup_path, added)
+                raise ValueError(f"{release['name']} doesn't start in this container, so nothing was changed: "
+                                 f"{problem}")
+        if docker:
+            version = contents.get("VERSION", b"").decode("utf-8", "replace").strip()
+            docker_update.keep(release, payload, version, image)
 
         _remember_installed(release)
-        deps = [f for f in DEPENDENCY_FILES if _read(PROJECT_ROOT / f) != before[f]]
+        # (in Docker, other packages were refused above and the rest is in "notes")
+        deps = [] if docker else [f for f in DEPENDENCY_FILES if _read(PROJECT_ROOT / f) != before[f]]
         return {
             "installed": release["name"], "previous": old_version,
-            "changed": changed, "added": added,
+            "changed": changed, "added": len(added),
             "backup": str(backup_path) if changed else None,
             "dependencies_changed": deps,
+            "docker": docker, "notes": docker_update.rebuild_notes(contents) if docker else [],
         }
     finally:
         _install_lock.release()
@@ -285,3 +347,20 @@ def restart_web_ui(args):
     # Always through run_webui.py, however this one was started (run_webui.py / -m webui).
     subprocess.Popen([sys.executable, str(PROJECT_ROOT / "run_webui.py"), *args], **kwargs)
     threading.Timer(1.0, lambda: os._exit(0)).start()
+
+
+def restart_in_place(args):
+    """In a container: turn this process into a fresh web UI. A second process wouldn't
+    do, since the container ends with the one it started."""
+    import sys
+
+    env = {k: v for k, v in os.environ.items()
+           if k not in ("WERKZEUG_SERVER_FD", "WERKZEUG_RUN_MAIN", "VT_RESTART_WAIT")}
+    command = [sys.executable, str(PROJECT_ROOT / "run_webui.py"), *args]
+
+    def replace():
+        os.closerange(3, 65536)  # the open ports, or the new web UI couldn't take them
+        os.chdir(PROJECT_ROOT)
+        os.execve(sys.executable, command, env)
+
+    threading.Timer(1.0, replace).start()

@@ -150,7 +150,7 @@ def create_app(ui_port=None, host=None):
 
     @app.get("/update")
     def update_page():
-        return render_template("update.html")
+        return render_template("update.html", in_docker=paths.in_docker())
 
     @app.get("/settings")
     def settings_page():
@@ -433,13 +433,12 @@ def create_app(ui_port=None, host=None):
 
     @app.post("/api/update/restart")
     def update_restart():
-        if paths.in_docker():
-            return jsonify({"error": "Restart the container instead: docker compose restart"}), 400
         busy = _busy_reason()
         if busy:
             return jsonify({"error": busy}), 409
         import sys
-        updater.restart_web_ui(sys.argv[1:])
+        restart = updater.restart_in_place if paths.in_docker() else updater.restart_web_ui
+        restart(sys.argv[1:])
         return jsonify({"ok": True})
 
     # ---- api: pinned shows (see pins.py) ----

@@ -2336,7 +2336,7 @@ function loadUpdates(force) {
         : info.update_available ? `${info.latest.name || info.latest.tag} is available. (Checked ${when})`
         : !info.installed_known && newest ? `It's not known which release is installed here. Install the newest one (${newest.name || newest.tag}) once, and from then on the Update tab keeps track. (Checked ${when})`
         : `You're on the newest version. (Checked ${when})`;
-      document.querySelector("#nav-update .nav-dot").hidden = !info.update_available;
+      document.querySelectorAll(".nav-dot").forEach((dot) => { dot.hidden = !info.update_available; });
       document.getElementById("update-list").innerHTML = info.releases.length ? info.releases.map((r) => {
         const date = r.published_at ? new Date(r.published_at).toLocaleDateString() : "";
         const label = r.state === "newer" || r.state === "available" ? "Install" : r.state === "current" ? "Reinstall" : "Go back to this version";
@@ -2362,6 +2362,8 @@ function loadUpdates(force) {
     .catch((e) => { status.textContent = `Couldn't load updates: ${e.message}`; });
 }
 
+let updateInDocker = false;
+
 function installUpdate(tag, state) {
   const msg = document.getElementById("update-message");
   const what = state === "older" ? `go back to ${tag}` : state === "current" ? `reinstall ${tag}` : `install ${tag}`;
@@ -2379,8 +2381,10 @@ function installUpdate(tag, state) {
       msg.textContent = "";
       const deps = res.dependencies_changed && res.dependencies_changed.length
         ? ` The dependencies changed (${res.dependencies_changed.join(", ")}), so run install.bat before restarting.` : "";
+      updateInDocker = !!res.docker;
+      const notes = (res.notes || []).map((note) => ` ${note}`).join("");
       document.getElementById("update-restart-text").textContent =
-        `${res.installed} installed (${res.changed} file(s) changed, ${res.added} new)${res.backup ? ", backup saved in backups/" : ""}.${deps} Restart the web UI to use it.`;
+        `${res.installed} installed (${res.changed} file(s) changed, ${res.added} new)${res.backup ? ", backup saved in backups/" : ""}.${deps} Restart the web UI to use it.${notes}`;
       document.getElementById("update-restart").hidden = false;
     })
     .catch((e) => {
@@ -2395,7 +2399,8 @@ function restartWebUi() {
     .then(async (r) => {
       const body = await r.json().catch(() => ({}));
       if (!r.ok) throw new Error(body.error || "Couldn't restart.");
-      text.textContent = "Restarting… this page reloads once the web UI is back (it opens in a new window).";
+      text.textContent = "Restarting… this page reloads once the web UI is back" +
+        (updateInDocker ? "." : " (it opens in a new window).");
       const oldBoot = document.body.dataset.boot;
       const poll = setInterval(() => {
         fetch("/update", { cache: "no-store" })

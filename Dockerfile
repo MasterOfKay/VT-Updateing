@@ -74,8 +74,10 @@ COPY assets assets
 # Node runs the token provider (yt-dlp's own challenge is solved by deno).
 COPY --from=pot /usr/local/bin/node /usr/local/bin/node
 COPY --from=pot /pot/node_modules vinetrimmer/pot_provider/server/node_modules
-COPY run_webui.py VERSION pyproject.toml ./
+COPY run_webui.py VERSION pyproject.toml poetry.lock ./
 COPY docker/entrypoint.sh /usr/local/bin/vt-entrypoint
+# What this image was built with, for updates from the web UI (webui/docker_update.py).
+COPY Dockerfile VERSION pyproject.toml poetry.lock docker/entrypoint.sh /opt/image/
 
 # Everything personal lives in the /data volume; the app finds it through links.
 RUN set -eu; \
@@ -89,6 +91,13 @@ RUN set -eu; \
     # The standalone yt-dlp can't see Python packages: give it the provider's plugin.
     mkdir -p linux-binaries/yt-dlp-plugins/bgutil; \
     cp -r /opt/venv/lib/python3.12/site-packages/yt_dlp_plugins linux-binaries/yt-dlp-plugins/bgutil/
+
+# The Update tab replaces program files, whichever user the container runs as. The build
+# id tells a rebuilt image from a recreated container.
+RUN set -eu; \
+    cat /proc/sys/kernel/random/uuid > /opt/image/build; \
+    find /app \( -path /app/linux-binaries -o -name node_modules \) -prune \
+        -o \( -type f -o -type d \) -exec chmod a+rwX {} +
 
 ENV PATH=/opt/venv/bin:$PATH \
     VIRTUAL_ENV=/opt/venv \

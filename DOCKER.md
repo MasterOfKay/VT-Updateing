@@ -46,16 +46,26 @@ Things to check after the first start:
 
 ## Updating
 
-Update the installation folder (new release), then:
+On the web UI's **Update** tab press **Install**, then **Restart web UI now**. The release
+is kept in `docker-data/update/`, so it stays when the container is recreated, and the files
+it replaced are saved in `docker-data/backups/`. If the new version doesn't start, nothing
+is changed.
+
+Some releases need a new image: ones that need other Python packages (the tab refuses them
+and says so), and, when convenient, ones that change the tools in the `Dockerfile`. For
+those, update the installation folder to the release, then:
 
 ```bash
 docker compose up -d --build
 ```
 
-The `.py` files of your services are taken from the folder on every start, except the ones
-you uploaded on the web UI's Services tab. Other files in `docker-data/` are never
-overwritten. The web UI's Update tab only tells you about new
-versions here; it can't install them inside a container.
+A rebuilt image replaces an update installed from the tab, unless that update is newer than
+the folder you built from (the `VERSION` file decides). If an update ever leaves the web UI
+unusable, delete `docker-data/update/` and run `docker compose up -d --force-recreate`.
+
+Updates don't include services. Their `.py` files are taken from the installation folder on
+every start, except the ones you uploaded on the web UI's Services tab. Other files in
+`docker-data/` are never overwritten.
 
 If you remove the `.:/import:ro` line after the first start, the container no longer sees
 your folder at all, and services are then updated by copying them into

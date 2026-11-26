@@ -20,6 +20,11 @@
       the program's own files. Your configs, credentials, services, devices, cookies, key vault, binaries, downloads,
       queue and settings are never touched. Every replaced file is backed up to <code>backups/</code> first, and you
       can go back to an older version from this list at any time.</p>
+    {% if in_docker %}
+    <p class="hint">This web UI runs in Docker. An installed update and its backup are kept in the data folder, so
+      they stay when the container is recreated. A release that needs other Python packages can't be installed from here; you're told how
+      to rebuild instead.</p>
+    {% endif %}
   </aside>
 
   <div class="split-main">

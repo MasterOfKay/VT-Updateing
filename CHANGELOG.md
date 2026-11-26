@@ -1,5 +1,9 @@
 # Changelog
 
+## V1.0.6.1
+
+- Docker: updates install from the Update tab and stay when the container is recreated; a rebuild is only needed for releases with new Python packages or tools. Needs one `docker compose up -d --build` first
+
 ## V1.0.6
 
 - Phone layout: on a phone, the pages get a bottom navigation bar, larger controls, the Download buttons always within reach, the queue as cards and full-screen dialogs. On a computer nothing changes

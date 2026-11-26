@@ -1,5 +1,6 @@
 # Only what the image needs...
 *
+!Dockerfile
 !pyproject.toml
 !poetry.lock
 !run_webui.py

@@ -68,4 +68,8 @@ if [ ! -f "$DATA/services/__init__.py" ]; then
     exit 1
 fi
 
+# An update installed on the web UI's Update tab is kept in /data: put it back, since a
+# new container starts from the image's files.
+(cd /app && python -m webui.docker_update) || echo "WARNING: the kept update couldn't be restored." >&2
+
 exec "$@"
