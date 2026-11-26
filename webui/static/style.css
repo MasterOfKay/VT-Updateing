@@ -499,6 +499,18 @@ details.collapsible > fieldset { margin-top: 8px; }
 .offer-main { flex: 1; min-width: 0; }
 .offer-url { color: var(--text-dim); font-size: 12px; overflow-wrap: anywhere; user-select: all; }
 .offer-tag { display: inline-block; font-size: 11px; padding: 0 7px; border-radius: 999px; border: 1px solid var(--border); color: var(--text-dim); margin-left: 4px; }
+.offer-access { display: flex; flex-wrap: wrap; gap: 6px; margin: 6px 0; }
+.access { display: inline-block; font-size: 14px; font-weight: 700; padding: 4px 12px; border-radius: 6px; color: #0a0c10; }
+.access-included { background: var(--ok); }
+.access-free { background: #5ec8e5; }
+.access-channel { background: #bfa2ff; }
+.access-paid { background: #ff9f43; }
+.access-disc { background: #b8bec9; }
+.offer.offer-included { border-left: 5px solid var(--ok); }
+.offer.offer-free { border-left: 5px solid #5ec8e5; }
+.offer.offer-channel { border-left: 5px solid #bfa2ff; }
+.offer.offer-paid { border-left: 5px solid #ff9f43; }
+.offer.offer-disc { border-left: 5px solid #b8bec9; border-style: dashed; border-left-style: solid; }
 .offer-langs summary { cursor: pointer; font-size: 12px; color: var(--text-dim); }
 .offer-actions { display: flex; flex-direction: column; gap: 6px; align-items: stretch; }
 .offer-actions button, .button-link { padding: 5px 12px; font-size: 13px; }

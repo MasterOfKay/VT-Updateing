@@ -8,12 +8,23 @@
     <div class="view-switch" role="group" aria-label="List">
       <button type="button" data-mode="new">New</button>
       <button type="button" data-mode="popular">Popular</button>
+      <button type="button" data-mode="all" title="Everything on the chosen services">All</button>
     </div>
     <div class="view-switch" role="group" aria-label="Type">
       <button type="button" data-kind="">All</button>
       <button type="button" data-kind="movie">Movies</button>
       <button type="button" data-kind="show">Shows</button>
     </div>
+    <select id="discover-access" title="How you get the titles" aria-label="How you get the titles">
+      <option value="">All offers</option>
+      <option value="included">Subscription &amp; free</option>
+      <option value="paid">Rent &amp; buy</option>
+    </select>
+    <select id="discover-sort" title="Order of the list" aria-label="Order" hidden>
+      <option value="">JustWatch order</option>
+      <option value="az">Title A &rarr; Z</option>
+      <option value="za">Title Z &rarr; A</option>
+    </select>
     <select id="discover-country" title="Whose catalogue to show">
       {% for code, name in countries %}
       <option value="{{ code }}"{% if code == settings.discover_country %} selected{% endif %}>{{ name }}</option>
@@ -28,8 +39,11 @@
 
   <div id="discover-providers" class="provider-bar" aria-label="Services"></div>
   <p id="discover-message" class="message" aria-live="polite"></p>
+  <p id="discover-count" class="hint" hidden></p>
   <div id="discover-results"></div>
   <div class="discover-more"><button type="button" id="discover-more" hidden></button></div>
+  <p id="discover-limit" class="hint" hidden>JustWatch only lets you scroll through about 2,000 titles in its own order.
+    Pick All and sort by title to reach every one.</p>
 
   <p class="hint">Data from <a href="https://www.justwatch.com/" target="_blank" rel="noopener">JustWatch</a>. It shows
     what the chosen country's catalogue offers: you may need a VPN for a country other than yours. What you search and

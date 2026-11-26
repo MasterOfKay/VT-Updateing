@@ -1,5 +1,9 @@
 # Changelog
 
+## 1.0.5
+- Discover "All": browse everything on the chosen services, in JustWatch's order or sorted by title A to Z / Z to A (up to 40,000 titles)
+- Discover: colored badges show whether an offer is included in the subscription, free, an extra channel or rent / buy, and a filter shows only subscription & free or only rent & buy; DVD / Blu-ray offers are marked as physical discs, with only a link to the shop
+
 ## 1.0.4
 
 - YouTube update: current yt-dlp (needed for AV1 and dubbed audio tracks); run `poetry install` after updating. Python 3.11 or newer is now required

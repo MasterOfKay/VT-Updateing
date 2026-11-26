@@ -106,10 +106,13 @@ def create_app(ui_port=None):
         services = [s for s in (args.get("services") or "").split(",") if s]
         kind = args.get("kind") if args.get("kind") in ("movie", "show") else None
         query = (args.get("q") or "").strip()[:100] or None
+        access = args.get("access") if args.get("access") in discover.ACCESS_FILTERS else None
         if args.get("mode") == "new" and not query:
-            return _discover(lambda c, l: discover.new(c, l, services, kind, args.get("date"), args.get("cursor")))
-        offset = max(0, min(2000, args.get("offset", 0, type=int)))
-        return _discover(lambda c, l: discover.popular(c, l, services, kind, query, offset))
+            return _discover(lambda c, l: discover.new(c, l, services, kind, args.get("date"), args.get("cursor"), access))
+        offset = max(0, args.get("offset", 0, type=int))
+        if args.get("mode") == "all" and not query:
+            return _discover(lambda c, l: discover.browse(c, l, services, kind, args.get("sort"), offset, access))
+        return _discover(lambda c, l: discover.popular(c, l, services, kind, query, min(offset, 2000), access))
 
     @app.get("/api/discover/title/<title_id>")
     def discover_title(title_id):

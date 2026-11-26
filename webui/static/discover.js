@@ -15,7 +15,9 @@
   let saved = {};
   try { saved = JSON.parse(localStorage.getItem(STORE) || "{}"); } catch (e) { /* ignore */ }
   const state = {
-    mode: saved.mode === "popular" ? "popular" : "new",
+    mode: ["popular", "all"].includes(saved.mode) ? saved.mode : "new",
+    sort: ["az", "za"].includes(saved.sort) ? saved.sort : "", // only for "all"
+    access: ["included", "paid"].includes(saved.access) ? saved.access : "",
     kind: ["movie", "show"].includes(saved.kind) ? saved.kind : "",
     services: new Set(Array.isArray(saved.services) ? saved.services : []),
     query: "",
@@ -27,7 +29,9 @@
 
   const remember = () => {
     try {
-      localStorage.setItem(STORE, JSON.stringify({ mode: state.mode, kind: state.kind, services: [...state.services] }));
+      localStorage.setItem(STORE, JSON.stringify({
+        mode: state.mode, sort: state.sort, access: state.access, kind: state.kind, services: [...state.services],
+      }));
     } catch (e) { /* private mode */ }
   };
 
@@ -108,9 +112,19 @@
       next = null;
     }
     moreButton.hidden = true;
-    message.textContent = "Loading…";
     const isNew = state.mode === "new" && !state.query;
-    const params = { mode: isNew ? "new" : "popular", services: [...state.services].join(","), kind: state.kind };
+    const isAll = state.mode === "all" && !state.query;
+    if (!from) $("discover-count").hidden = true;
+    $("discover-limit").hidden = true;
+    message.textContent = isAll && state.sort && !from
+      ? "Collecting the whole catalogue to sort it. For a large one this can take up to a minute…"
+      : "Loading…";
+    const params = {
+      mode: isNew ? "new" : isAll ? "all" : "popular",
+      services: [...state.services].join(","), kind: state.kind,
+    };
+    if (isAll && state.sort) params.sort = state.sort;
+    if (state.access) params.access = state.access;
     if (state.query) params.q = state.query;
     if (from) Object.assign(params, from);
 
@@ -138,6 +152,11 @@
         next = data.next ? { offset: data.next } : null;
         moreButton.textContent = "Load more";
         if (!results.children.length) message.textContent = "Nothing found.";
+        $("discover-limit").hidden = !data.limited || !!state.query;
+        if (isAll && data.total) {
+          $("discover-count").textContent = `${data.total.toLocaleString()} titles`;
+          $("discover-count").hidden = false;
+        }
       }
       moreButton.hidden = !next;
     }).catch((e) => {
@@ -154,6 +173,9 @@
   function syncSwitches() {
     root.querySelectorAll("[data-mode]").forEach((b) => b.classList.toggle("active", !state.query && b.dataset.mode === state.mode));
     root.querySelectorAll("[data-kind]").forEach((b) => b.classList.toggle("active", b.dataset.kind === state.kind));
+    $("discover-access").value = state.access;
+    $("discover-sort").value = state.sort;
+    $("discover-sort").hidden = state.mode !== "all" || !!state.query;
   }
 
   function reload() {
@@ -209,6 +231,30 @@
     renderOffers();
   }
 
+  // How you get a title: badge colour and text for each kind of access.
+  const ACCESS = {
+    included: ["included", "\u2713 Included in subscription"],
+    channel: ["channel", "Extra channel subscription"],
+    free: ["free", "Free"],
+    ads: ["free", "Free with ads"],
+    rent: ["paid", "Rent"],
+    buy: ["paid", "Buy"],
+    disc: ["disc", "\u{1F4BF} Physical disc (shop)"],
+  };
+  const DISCS = { DVD: "DVD", BLURAY: "Blu-ray", BLURAY_4K: "4K Blu-ray" };
+  const FILTERS = {
+    included: { access: ["included", "free", "ads"], none: "Not in a subscription or free on your services." },
+    paid: { access: ["rent", "buy"], none: "Not for rent or sale on your services." },
+  };
+
+  function accessBadges(access) {
+    const both = access.includes("rent") && access.includes("buy");
+    return access.filter((a) => ACCESS[a] && !(both && a === "buy")).map((a) => {
+      const [color, label] = ACCESS[a];
+      return `<span class="access access-${color}">${both && a === "rent" ? "Rent / Buy" : label}</span>`;
+    }).join("");
+  }
+
   function renderOffers() {
     const t = current.data;
     const box = $("title-offers");
@@ -217,36 +263,49 @@
       return;
     }
     const experimental = !!root.dataset.experimental;
-    box.innerHTML = t.offers.map((o, i) => {
-      const paid = o.monetization.length && o.monetization.every((m) => m === "BUY" || m === "RENT");
-      const quality = o.quality.includes("4K") ? "4K" : o.quality.includes("HD") ? "HD" : o.quality[0] || "";
+    // The price filter of the list applies here too; the rest is one click away.
+    // Discs are a category of their own.
+    const filter = FILTERS[state.access];
+    const isDisc = (o) => o.access.includes("disc");
+    const fits = (o) => !filter || isDisc(o) || o.access.some((a) => filter.access.includes(a));
+    const digital = t.offers.filter((o) => !isDisc(o));
+    const some = !filter || digital.some(fits);
+    const hidden = some && !current.allOffers ? t.offers.filter((o) => !fits(o)).length : 0;
+    const note = !digital.length ? `<p class="hint">None of your services has this to stream, rent or buy here.</p>`
+      : some ? "" : `<p class="hint">${filter.none} These are the other offers:</p>`;
+    box.innerHTML = note + t.offers.map((o, i) => {
+      if (hidden && !fits(o)) return "";
+      const disc = isDisc(o);
+      const quality = disc ? o.quality.map((q) => DISCS[q] || q).join(", ")
+        : o.quality.includes("4K") ? "4K" : o.quality.includes("HD") ? "HD" : o.quality[0] || "";
       const tags = [
         quality,
         o.video.includes("DOLBY_VISION") ? "Dolby Vision" : "",
         o.video.some((v) => v.startsWith("HDR10")) ? "HDR10" : "",
-        paid ? "Buy / rent" : "",
       ].filter(Boolean).map((x) => `<span class="offer-tag">${escapeHtml(x)}</span>`).join("");
       const languages = [o.audio.length ? `Audio: ${o.audio.join(", ")}` : "",
         o.subtitles.length ? `Subtitles: ${o.subtitles.join(", ")}` : ""].filter(Boolean);
       const p = providerOf(o.service);
       const off = o.usable ? "" : " disabled";
       return `
-        <div class="offer">
+        <div class="offer offer-${(ACCESS[o.access[0]] || ["other"])[0]}">
           ${p && p.icon ? `<img class="offer-icon" src="${escapeHtml(p.icon)}" alt="">` : `<span class="offer-icon"></span>`}
           <div class="offer-main">
             <div><strong>${escapeHtml(o.providers.join(", ") || o.service)}</strong> ${tags}</div>
-            <div class="offer-url">${/^https?:/.test(o.url) ? "" : "ID: "}${escapeHtml(o.url)}</div>
+            <div class="offer-access">${accessBadges(o.access)}</div>
+            ${disc ? "" : `<div class="offer-url">${/^https?:/.test(o.url) ? "" : "ID: "}${escapeHtml(o.url)}</div>`}
             ${o.note ? `<div class="hint${o.usable ? "" : " warn"}">${escapeHtml(o.note)}</div>` : ""}
             ${languages.length ? `<details class="offer-langs"><summary>Languages</summary>${languages.map((l) => `<div class="hint">${escapeHtml(l)}</div>`).join("")}</details>` : ""}
           </div>
           <div class="offer-actions">
+            ${disc ? "" : `
             ${experimental ? `<button type="button" class="primary" data-act="check" data-offer="${i}"${off}>Check availability</button>` : ""}
             <button type="button"${experimental ? "" : ' class="primary"'} data-act="setup" data-offer="${i}"${off}>Set up download</button>
-            <button type="button" data-act="queue" data-offer="${i}"${off}>Add to queue</button>
+            <button type="button" data-act="queue" data-offer="${i}"${off}>Add to queue</button>`}
             <a class="button-link" href="${escapeHtml(o.web_url)}" target="_blank" rel="noopener noreferrer">Open &#8599;</a>
           </div>
         </div>`;
-    }).join("");
+    }).join("") + (hidden ? `<button type="button" data-act="all-offers">Show ${hidden} other offer${hidden > 1 ? "s" : ""}</button>` : "");
   }
 
   function loadEpisodes() {
@@ -337,7 +396,11 @@
   });
   dialogBody.addEventListener("click", (e) => {
     const button = e.target.closest("[data-act]");
-    if (button && current && current.data) act(button);
+    if (!button || !current || !current.data) return;
+    if (button.dataset.act === "all-offers") {
+      current.allOffers = true;
+      renderOffers();
+    } else act(button);
   });
   dialogBody.addEventListener("change", (e) => {
     if (e.target.id === "title-season") {
@@ -366,6 +429,14 @@
     state.kind = b.dataset.kind;
     reload();
   }));
+  $("discover-access").addEventListener("change", (e) => {
+    state.access = e.target.value;
+    reload();
+  });
+  $("discover-sort").addEventListener("change", (e) => {
+    state.sort = e.target.value;
+    reload();
+  });
   $("discover-providers").addEventListener("click", (e) => {
     const button = e.target.closest("[data-service]");
     if (!button) return;
