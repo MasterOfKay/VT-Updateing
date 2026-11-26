@@ -52,18 +52,41 @@ Update the installation folder (new release), then:
 docker compose up -d --build
 ```
 
-The `.py` files of your services are taken from the folder on every start. Other files in
-`docker-data/` are never overwritten. The web UI's Update tab only tells you about new
+The `.py` files of your services are taken from the folder on every start, except the ones
+you uploaded on the web UI's Services tab. Other files in `docker-data/` are never
+overwritten. The web UI's Update tab only tells you about new
 versions here; it can't install them inside a container.
 
 If you remove the `.:/import:ro` line after the first start, the container no longer sees
 your folder at all, and services are then updated by copying them into
 `docker-data/services`.
 
+## VPN
+
+Nothing to add to the container: enter your provider's login on **Credentials** → **VPN**,
+then switch the VPN on per download. It uses the provider's HTTP / HTTPS proxy servers
+(NordVPN needs its *service credentials*), so only the jobs you choose go through it, and
+the web UI stays reachable as before. WireGuard, OpenVPN and SOCKS aren't used this way.
+
+## Adding services in the browser
+
+The **Services** tab shows what each service needs. Uploading `.py` / `.yml` files is off in
+Docker, because whoever can upload a service can run code on your server. To switch it on,
+add this to the service in `docker-compose.yml` and run `docker compose up -d`:
+
+```yaml
+    environment:
+      VT_WEBUI_SERVICE_UPLOAD: "1"
+```
+
+Uploaded files are kept in `docker-data/services` and `docker-data/config/services`.
+
 ## Network and the API
 
 - Both ports are published on **this computer only**. The web UI has no login and manages
-  your credentials: don't open port 8787 to a network.
+  your credentials: don't open port 8787 to a network. If you reach it through a reverse
+  proxy, put a password in front of it there (for example an Access List in Nginx Proxy
+  Manager) and let the proxy pass the `Host` header on.
 - For the external API (see [API.md](API.md)) switch it on under Settings. To reach it
   from another machine, change `"127.0.0.1:8788:8788"` to `"8788:8788"` in
   `docker-compose.yml`. A bot running in Docker on the same computer can join the same

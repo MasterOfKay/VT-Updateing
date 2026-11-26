@@ -4,6 +4,7 @@ Example client for the web UI's external API (see API.md). Standard library only
 
     set VT_API_KEY=vt_...                     (Linux/macOS: export VT_API_KEY=vt_...)
     python vt_api_client.py Netflix 80057281 --codec av1 --range hybridplus --quality 4k --wanted S01E01
+    python vt_api_client.py Netflix 80057281 --wanted S01 --vpn id      (through the VPN, in Indonesia)
     python vt_api_client.py --progress                (what is downloading, every 5 seconds)
 
 It asks for the check, shows what's available, and queues the download after a "y".
@@ -40,7 +41,8 @@ class VTApi:
             raise RuntimeError(message or f"HTTP {e.code}") from None
 
     def create_request(self, service, link, **options):
-        """options: codec, range, quality, wanted, audio_lang, sub_lang, fallback, check_keys"""
+        """options: codec, range, quality, wanted, audio_lang, sub_lang, fallback, check_keys,
+        vpn (True), location (two-letter country)"""
         body = {"service": service, "link": link}
         body.update({k: v for k, v in options.items() if v is not None})
         return self.call("POST", "/requests", body)
@@ -62,6 +64,10 @@ class VTApi:
 
     def decline(self, request_id):
         return self.call("DELETE", f"/requests/{request_id}")
+
+    def vpn(self):
+        """Whether the VPN is ready, and the locations a request can ask for."""
+        return self.call("GET", "/vpn")
 
     def progress(self):
         """What is downloading right now."""
@@ -91,6 +97,7 @@ def main():
     parser.add_argument("--wanted", help="e.g. S01, S01E03, S01-S02")
     parser.add_argument("--audio-lang", help="e.g. de,en")
     parser.add_argument("--sub-lang", help="e.g. de,en")
+    parser.add_argument("--vpn", metavar="COUNTRY", help="check and download through the VPN, e.g. id or us")
     parser.add_argument("--url", default=os.environ.get("VT_API_URL", "http://127.0.0.1:8788"))
     args = parser.parse_args()
 
@@ -109,7 +116,8 @@ def main():
             return 0
         request = api.create_request(
             args.service, args.link, codec=args.codec, range=args.range, quality=args.quality,
-            wanted=args.wanted, audio_lang=args.audio_lang, sub_lang=args.sub_lang)
+            wanted=args.wanted, audio_lang=args.audio_lang, sub_lang=args.sub_lang,
+            vpn=True if args.vpn else None, location=args.vpn)
         request = api.wait(request, on_status=print)
         print(request["message"])
         for warning in request["warnings"]:

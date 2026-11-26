@@ -3,197 +3,208 @@
 {% block content %}
 <h1>Settings</h1>
 
-<fieldset id="storage-paths">
-  <legend>Storage</legend>
-  <p class="hint">Where finished downloads and temporary files are saved. This applies to every download.
-    Leave a field empty to use the folder inside this project. A folder that doesn't exist yet is created for you,
-    so you can easily move downloads or temp files to another drive.</p>
+<div class="split settings" id="settings">
+  <nav class="rail settings-nav" aria-label="Settings sections">
+    <a href="#storage">Folders</a>
+    <a href="#downloads">Downloading</a>
+    <a href="#devices">Devices (CDM)</a>
+    <a href="#vaults">Key vaults</a>
+    <a href="#output">Files and subtitles</a>
+    <a href="#defaults">Defaults and profiles</a>
+    <a href="#network">Network</a>
+    <a href="#webui">Web UI</a>
+    <a href="#api">External API</a>
+    <a class="nav-out" href="{{ url_for('credentials_page') }}#vpn">VPN (on Credentials)</a>
+  </nav>
 
-  <label class="field">
-    <span>Downloads folder</span>
-    <input type="text" id="storage-downloads" placeholder="default: downloads/">
-  </label>
-  <p class="hint">In use now: <code id="storage-downloads-effective">&hellip;</code></p>
+  <div class="split-main">
+    <p id="settings-error" class="message"></p>
 
-  <label class="field">
-    <span>Temp folder</span>
-    <input type="text" id="storage-temp" placeholder="default: temp/">
-  </label>
-  <p class="hint">In use now: <code id="storage-temp-effective">&hellip;</code></p>
+    <section data-page="storage" class="cols" hidden>
+      <fieldset id="storage-paths">
+        <legend>Folders</legend>
+        <p class="hint">Leave a field empty to use the folder inside this project. A folder that doesn't exist yet is
+          created for you.</p>
+        {% for key, label in (("downloads", "Downloads folder"), ("temp", "Temp folder"), ("fonts", "Fonts folder (for subtitles)")) %}
+        <div class="field">
+          <span id="storage-{{ key }}-label">{{ label }}</span>
+          <div class="path-row">
+            <input type="text" id="storage-{{ key }}" placeholder="default" aria-labelledby="storage-{{ key }}-label">
+            <button type="button" data-browse="storage-{{ key }}">Choose&hellip;</button>
+          </div>
+          <span class="hint">In use now: <code id="storage-{{ key }}-effective">&hellip;</code></span>
+        </div>
+        {% endfor %}
+        <button type="button" id="btn-save-storage" class="primary">Save folders</button>
+        <p id="storage-message" class="message"></p>
+      </fieldset>
+      <fieldset>
+        <legend>Temp folder contents</legend>
+        <p class="hint"><span id="temp-usage">&hellip;</span></p>
+        <button type="button" id="btn-clean-temp">Clean temp folder</button>
+        <p id="temp-message" class="message"></p>
+      </fieldset>
+    </section>
 
-  <button type="button" id="btn-save-storage" class="primary">Save Paths</button>
-  <p id="storage-message" class="message"></p>
+    <section data-page="downloads" hidden>
+      <div data-config="downloader"></div>
+      <fieldset id="retry-settings">
+        <legend>Failed downloads</legend>
+        <p class="hint">You can always retry a failed download from the Queue tab. If a show failed in the middle, the
+          retry starts at the episode that failed, so nothing is downloaded twice.</p>
+        <label class="field field-flag">
+          <input type="checkbox" id="setting-auto-retry">
+          <span>Put failed downloads back in the queue automatically</span>
+        </label>
+        <label class="field narrow">
+          <span>Stop after this many failures in a row at the same episode</span>
+          <input type="number" id="setting-auto-retry-max" min="1" max="20" step="1">
+        </label>
+        <label class="field field-flag">
+          <input type="checkbox" id="setting-cleanup-temp">
+          <span>Delete the leftover files of a failed or cancelled download before the next one starts</span>
+        </label>
+        <button type="button" id="btn-save-retry" class="primary">Save</button>
+        <p id="retry-message" class="message"></p>
+      </fieldset>
+    </section>
 
-  <p class="hint">Temp folder contents: <span id="temp-usage">&hellip;</span></p>
-  <button type="button" id="btn-clean-temp">Clean temp folder</button>
-  <p id="temp-message" class="message"></p>
-</fieldset>
+    <section data-page="devices" hidden><div data-config="devices"></div></section>
+    <section data-page="vaults" hidden><div data-config="vaults"></div></section>
+    <section data-page="output" hidden><div data-config="output"></div><div data-config="general"></div></section>
+    <section data-page="defaults" hidden><div data-config="defaults"></div><div data-config="profiles"></div></section>
+    <section data-page="network" hidden><div data-config="network"></div></section>
 
-<fieldset id="progress-display-setting">
-  <legend>Console Progress Display</legend>
-  <p class="hint">Only matters when you run vinetrimmer yourself in a terminal (cmd or shell). It decides whether
-    you see live progress bars or simple "Downloaded: &lt;track&gt;" lines. Downloads started here in the web UI
-    always show progress bars on the Console tab.</p>
-  <label class="field field-flag">
-    <input type="checkbox" id="setting-progress-display">
-    <span>Show live progress bars in the terminal (off: simple "Downloaded: &lt;track&gt;" lines)</span>
-  </label>
-</fieldset>
+    <section data-page="webui" class="cols" hidden>
+      <div>
+      <fieldset id="web-settings">
+        <legend>Console tab</legend>
+        <label class="field narrow">
+          <span>What the Console tab shows (you can also switch this on the tab)</span>
+          <select id="setting-console-view">
+            <option value="bars">Download progress only</option>
+            <option value="cli">CLI log only</option>
+            <option value="both">Both</option>
+          </select>
+        </label>
+      </fieldset>
+      <fieldset>
+        <legend>Pinned shows</legend>
+        <label class="field narrow">
+          <span>How often new pins look for new episodes (changeable per show on the Queue tab)</span>
+          <select id="setting-pin-hours">
+            <option value="0">manual</option>
+            <option value="1">every hour</option>
+            <option value="3">every 3 hours</option>
+            <option value="6">every 6 hours</option>
+            <option value="12">every 12 hours</option>
+            <option value="24">every day</option>
+            <option value="48">every 2 days</option>
+            <option value="72">every 3 days</option>
+            <option value="168">every week</option>
+            <option value="336">every 2 weeks</option>
+            <option value="720">every month</option>
+          </select>
+        </label>
+        <label class="field field-flag">
+          <input type="checkbox" id="setting-fetch-air">
+          <span>Show when the next episode airs (from TVmaze), and look for it right after that time</span>
+        </label>
+        <p class="hint">This sends the show's name to TVmaze. A streaming service can publish a bit later than the TV air
+          time. If the episode isn't there yet, the next regular check finds it.</p>
+      </fieldset>
+      </div>
+      <div>
+      <fieldset>
+        <legend>Availability check</legend>
+        <label class="field field-flag">
+          <input type="checkbox" id="setting-experimental-check">
+          <span>Show "Check availability" on the Download page (experimental)</span>
+        </label>
+        <p class="hint">Shows what a title offers before you download it: resolutions, codecs, HDR and DV, every audio
+          track and subtitle. It logs in and reads the track list, but never downloads anything and never asks for keys.</p>
+        <p class="hint warn"><strong>Account risk:</strong> every check logs in, just like a download does. Checking a
+          service while it is downloading looks like several devices on one account at once.</p>
+        <label class="field field-flag">
+          <input type="checkbox" id="setting-warn-busy">
+          <span>Warn me before checking a service that is currently downloading</span>
+        </label>
+        <label class="field field-flag">
+          <input type="checkbox" id="setting-fetch-posters">
+          <span>Show posters (looked up on IMDb by the title's name and year, which sends both to IMDb)</span>
+        </label>
+        <p id="experimental-message" class="message"></p>
+      </fieldset>
+      </div>
+    </section>
 
-<fieldset id="console-view-setting">
-  <legend>Console Tab</legend>
-  <label class="field">
-    <span>What the Console tab shows (you can also switch this on the tab itself)</span>
-    <select id="setting-console-view">
-      <option value="bars">Download progress only</option>
-      <option value="cli">CLI log only</option>
-      <option value="both">Both</option>
-    </select>
-  </label>
-</fieldset>
-
-<fieldset id="experimental-settings">
-  <legend>Experimental</legend>
-  <label class="field field-flag">
-    <input type="checkbox" id="setting-experimental-check">
-    <span>Availability check on the Download page ("Check availability")</span>
-  </label>
-  <p class="hint">Shows what a title offers before you download it: resolutions, codecs, SDR, HDR10, HDR10+,
-    DV and DV+HDR, every audio track and every subtitle. You can then pick what you want. It logs in and reads the
-    track list, but it never downloads anything and never asks for keys.</p>
-  <p class="hint warn"><strong>Account risk:</strong> every check logs in, just like a download does. Checking a
-    service while it is downloading looks like several devices on one account at once, and that is riskier for the
-    account. Different services don't affect each other.</p>
-  <label class="field field-flag">
-    <input type="checkbox" id="setting-warn-busy">
-    <span>Warn me before checking a service that is currently downloading</span>
-  </label>
-  <label class="field field-flag">
-    <input type="checkbox" id="setting-fetch-posters">
-    <span>Show posters (looked up on IMDb by the title's name and year)</span>
-  </label>
-  <p class="hint">This sends the name and year to IMDb. When it's off, a poster only shows if the service itself
-    provides one.</p>
-  <p id="experimental-message" class="message"></p>
-</fieldset>
-
-<fieldset id="api-settings">
-  <legend>External API</legend>
-  <p class="hint">Lets your own scripts, such as a Discord bot, ask for downloads: they send a service, a link or ID and
-    the quality they want, get back what's available, and confirm it. The API runs on its own port and only offers
-    these calls, not this web page. How to use it is described in <code>API.md</code>.</p>
-  <label class="field field-flag">
-    <input type="checkbox" id="api-enabled">
-    <span>Enable the API</span>
-  </label>
-  <label class="field">
-    <span>Who can reach it</span>
-    <select id="api-host">
-      <option value="127.0.0.1">Only programs on this computer (127.0.0.1)</option>
-      <option value="0.0.0.0">Other computers too (0.0.0.0)</option>
-    </select>
-  </label>
-  <label class="field">
-    <span>Port</span>
-    <input type="number" id="api-port" min="1024" max="65535" step="1">
-  </label>
-  <p class="hint warn">Anyone who has the key can make this computer log in to your accounts and download. The API uses
-    plain HTTP: to use it over the internet, put it behind a reverse proxy with HTTPS or a VPN.</p>
-  <label class="field field-flag">
-    <input type="checkbox" id="api-wait">
-    <span>While a service is downloading, hold back API checks for that same service until it's done</span>
-  </label>
-  <label class="field field-flag">
-    <input type="checkbox" id="api-autostart">
-    <span>Start the queue for confirmed requests when it's idle (a paused queue stays paused)</span>
-  </label>
-  <button type="button" id="btn-api-save" class="primary">Save API settings</button>
-  <p id="api-message" class="message"></p>
-  <div id="api-key-block" hidden>
-    <div class="hint">API key</div>
-    <div class="api-key-row">
-      <input type="password" id="api-key" readonly aria-label="API key">
-      <button type="button" id="btn-api-show">Show</button>
-      <button type="button" id="btn-api-copy">Copy</button>
-      <button type="button" id="btn-api-newkey">New key</button>
-    </div>
-    <p class="hint" id="api-url"></p>
+    <section data-page="api" hidden>
+      <fieldset id="api-settings">
+        <legend>External API</legend>
+        <p class="hint">Lets your own scripts, such as a Discord bot, ask for downloads: they send a service, a link or ID
+          and the quality they want, get back what's available, and confirm it. The API runs on its own port and only
+          offers these calls, not this web page. How to use it is described in <code>API.md</code>.</p>
+        <label class="field field-flag">
+          <input type="checkbox" id="api-enabled">
+          <span>Enable the API</span>
+        </label>
+        <div class="check-fields">
+          <label class="field">
+            <span>Who can reach it</span>
+            <select id="api-host">
+              <option value="127.0.0.1">Only programs on this computer (127.0.0.1)</option>
+              <option value="0.0.0.0">Other computers too (0.0.0.0)</option>
+            </select>
+          </label>
+          <label class="field">
+            <span>Port</span>
+            <input type="number" id="api-port" min="1024" max="65535" step="1">
+          </label>
+        </div>
+        <p class="hint warn">Anyone who has the key can make this computer log in to your accounts and download. The API
+          uses plain HTTP: to use it over the internet, put it behind a reverse proxy with HTTPS, or a VPN.</p>
+        <label class="field field-flag">
+          <input type="checkbox" id="api-wait">
+          <span>While a service is downloading, hold back API checks for that same service until it's done</span>
+        </label>
+        <label class="field field-flag">
+          <input type="checkbox" id="api-autostart">
+          <span>Start the queue for confirmed requests when it's idle (a paused queue stays paused)</span>
+        </label>
+        <button type="button" id="btn-api-save" class="primary">Save API settings</button>
+        <p id="api-message" class="message"></p>
+        <div id="api-key-block" hidden>
+          <div class="hint">API key</div>
+          <div class="api-key-row">
+            <input type="password" id="api-key" readonly aria-label="API key">
+            <button type="button" id="btn-api-show">Show</button>
+            <button type="button" id="btn-api-copy">Copy</button>
+            <button type="button" id="btn-api-newkey">New key</button>
+          </div>
+          <p class="hint" id="api-url"></p>
+        </div>
+      </fieldset>
+    </section>
   </div>
-</fieldset>
+</div>
 
-<fieldset id="pin-settings">
-  <legend>Pinned Shows</legend>
-  <label class="field">
-    <span>How often new pins look for new episodes (you can change it for each show on the Queue tab)</span>
-    <select id="setting-pin-hours">
-      <option value="0">manual</option>
-      <option value="1">every hour</option>
-      <option value="3">every 3 hours</option>
-      <option value="6">every 6 hours</option>
-      <option value="12">every 12 hours</option>
-      <option value="24">every day</option>
-      <option value="48">every 2 days</option>
-      <option value="72">every 3 days</option>
-      <option value="168">every week</option>
-      <option value="336">every 2 weeks</option>
-      <option value="720">every month</option>
-    </select>
-  </label>
-  <label class="field field-flag">
-    <input type="checkbox" id="setting-fetch-air">
-    <span>Show when the next episode airs (from TVmaze), and look for it right after that time</span>
-  </label>
-  <p class="hint">This sends the show's name to TVmaze. The TV air time is a good guide, but a streaming service can
-    publish a bit later. If the episode isn't there yet, the next regular check finds it.</p>
-</fieldset>
-
-<fieldset id="default-preferences">
-  <legend>Default Preferences</legend>
-  <p class="hint">These values are filled in on the Download page for every service. You can still change them for
-    each download. The command line uses them too when you leave the option out.</p>
-
-  <label class="field">
-    <span>Default audio language (-al)</span>
-    <input type="text" id="setting-alang" placeholder="e.g. orig, en, de">
-  </label>
-  <label class="field">
-    <span>Default subtitle language (-sl)</span>
-    <input type="text" id="setting-slang" placeholder="e.g. all, en, de">
-  </label>
-  <label class="field">
-    <span>Default video codec (-v)</span>
-    <select id="setting-vcodec">
-      <option value="">(vinetrimmer's own default: h264)</option>
-      {% for c in vcodec_choices %}
-      <option value="{{ c }}">{{ c }}</option>
-      {% endfor %}
-    </select>
-  </label>
-
-  <button type="button" id="btn-save-preferences" class="primary">Save Preferences</button>
-  <p id="preferences-message" class="message"></p>
-</fieldset>
-
-<fieldset id="retry-settings">
-  <legend>Failed Downloads</legend>
-  <p class="hint">You can always retry a failed download from the Queue tab. If a show failed in the middle, the
-    retry starts at the episode that failed, so nothing is downloaded twice.</p>
-  <label class="field field-flag">
-    <input type="checkbox" id="setting-auto-retry">
-    <span>Put failed downloads back in the queue automatically</span>
-  </label>
-  <label class="field">
-    <span>Stop retrying after this many failures in a row at the same episode</span>
-    <input type="number" id="setting-auto-retry-max" min="1" max="20" step="1">
-  </label>
-  <p class="hint">If a retry gets further than the one before, the count starts again.</p>
-  <label class="field field-flag">
-    <input type="checkbox" id="setting-cleanup-temp">
-    <span>Delete the leftover files of a failed or cancelled download before the next one starts</span>
-  </label>
-  <p class="hint">This only removes files that download created or changed. Other files in the temp folder stay.
-    To empty the whole folder, use "Clean temp folder" under Storage.</p>
-  <button type="button" id="btn-save-retry" class="primary">Save</button>
-  <p id="retry-message" class="message"></p>
-</fieldset>
+<dialog id="folder-dialog" class="folder-dialog">
+  <h2>Choose a folder</h2>
+  <p class="hint" id="folder-note"></p>
+  <div id="folder-roots" class="avail-chips"></div>
+  <div class="folder-path"><button type="button" id="folder-up" title="One folder up">Up</button><code id="folder-current"></code></div>
+  <div id="folder-list" class="folder-list"></div>
+  <p id="folder-message" class="message"></p>
+  <div class="inline">
+    <input type="text" id="folder-new" placeholder="Name of a new folder here" aria-label="Name of a new folder">
+    <button type="button" id="folder-create">Create folder</button>
+  </div>
+  <div class="actions">
+    <button type="button" class="primary" id="folder-choose">Use this folder</button>
+    <button type="button" id="folder-cancel">Cancel</button>
+  </div>
+</dialog>
+{% endblock %}
+{% block scripts %}
+<script src="{{ url_for('static', filename='settings.js', v=asset_version('settings.js')) }}"></script>
 {% endblock %}

@@ -27,7 +27,8 @@ from vinetrimmer import config
 from vinetrimmer.constants import LANGUAGE_MUX_MAP, TERRITORY_MAP
 from vinetrimmer.utils import Cdm, get_boxes, get_closest_match, is_close_match, try_get
 from vinetrimmer.utils.collections import as_list
-from vinetrimmer.utils.io import aria2c, download_range, saldl, tqdm_downloader, m3u8re
+from vinetrimmer.utils.io import aria2c, download_range, saldl, m3u8re
+from vinetrimmer.utils.proxy_bridge import local_proxy
 from vinetrimmer.utils.downloaders import aria2c as aria2c_new, n_m3u8dl
 from vinetrimmer.utils.fonts import ensure_service_fonts, family_covers, resolve_fonts
 from vinetrimmer.utils.subprocess import ffprobe
@@ -717,6 +718,12 @@ class Track:
                 quiet=quiet,
                 progress_callback=progress_callback
             )
+            # It's finished here: carrying on would download the track a second time and
+            # overwrite it (for HLS, with the playlist file itself).
+            if not os.path.isfile(save_path) or os.stat(save_path).st_size <= 3:
+                raise IOError("Download failed, N_m3u8DL-RE wrote no file (or an empty one).")
+            self._location = save_path
+            return save_path
         else:
             # For aria2c and other downloaders, process M3U to extract segments
             if self.descriptor == self.Descriptor.M3U:
@@ -815,19 +822,12 @@ class Track:
                 print("No match found")
             # out = re.search(r"Video_\w+", str(out)).group(0)
             if self.needs_proxy:
-                subprocess.run(f"{executable} {extracted_url} --save-name {re_name} --save-dir {out} --tmp-dir {out} -sv best --custom-proxy {proxy} --log-level ERROR")
+                subprocess.run(f"{executable} {extracted_url} --save-name {re_name} --save-dir {out} --tmp-dir {out} -sv best --custom-proxy {local_proxy(proxy)} --log-level ERROR")
             else:
                 # --use-system-proxy False
                 subprocess.run(f"{executable} {extracted_url} --save-name {re_name} --save-dir {out} --tmp-dir {out} -sv best --use-system-proxy False --log-level ERROR")
         elif self.source == "CORE":
             saldl(
-                self.url,
-                save_path,
-                headers,
-                proxy if self.needs_proxy else None
-            )
-        elif (self.source == "NF" and proxy != None):
-            tqdm_downloader(
                 self.url,
                 save_path,
                 headers,

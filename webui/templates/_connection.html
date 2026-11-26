@@ -1,0 +1,29 @@
+{#- The VPN switch and the route a job takes. Used inside the availability check, or
+    on its own while that is turned off. #}
+<div class="connection" id="connection" data-ready="{{ '1' if vpn.ready else '' }}">
+  <div class="connection-controls">
+    <label class="switch">
+      <input type="checkbox" name="vpn" id="vpn-on"{% if not vpn.ready %} disabled{% endif %}>
+      <span class="switch-track" aria-hidden="true"></span>
+      <span class="switch-label">VPN</span>
+    </label>
+    <select name="vpn_country" id="vpn-country" aria-label="VPN country"{% if not vpn.ready %} disabled{% endif %}>
+      <option value="">Choose a country&hellip;</option>
+      {% for c in vpn.countries %}
+      <option value="{{ c.code }}">{{ c.name }}</option>
+      {% endfor %}
+    </select>
+    <a class="connection-settings" href="{{ url_for('credentials_page') }}#vpn">VPN settings</a>
+  </div>
+  <div class="route" id="route" aria-live="polite">
+    <span class="route-end">This computer</span>
+    <span class="route-line"><span class="route-via" id="route-via">Direct connection</span></span>
+    <span class="route-end" id="route-service">Service</span>
+  </div>
+  {% if vpn.ready %}
+  <p class="hint">With the switch on, the check and the download both go through {{ vpn.provider_name }}. A pinned show
+    keeps this choice. The switch is remembered for each service.</p>
+  {% else %}
+  <p class="hint warn">{{ vpn.problem }}</p>
+  {% endif %}
+</div>

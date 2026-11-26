@@ -8,6 +8,7 @@ import sys
 from pathlib import Path
 
 from vinetrimmer.utils.collections import as_list
+from vinetrimmer.utils.proxy_bridge import local_proxy
 
 
 def aria2c(uri, out, headers=None, proxy=None, quiet=False):
@@ -73,7 +74,7 @@ def aria2c(uri, out, headers=None, proxy=None, quiet=False):
         ])
 
     if proxy:
-        arguments.extend(["--all-proxy", proxy])
+        arguments.extend(["--all-proxy", local_proxy(proxy)])  # aria2c can't talk to https:// proxies
 
     try:
         stdout_arg = subprocess.DEVNULL if quiet else None

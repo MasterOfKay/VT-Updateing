@@ -2,12 +2,16 @@
 <html lang="en">
 <head>
 <meta charset="utf-8">
-<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="theme-color" content="#1b1e25">
 <title>{% block title %}VT.PR.WV{% endblock %}</title>
 <link rel="icon" href="{{ url_for('favicon', v=asset_version('favicon.ico')) }}" sizes="32x32">
 <link rel="icon" type="image/svg+xml" href="{{ url_for('static', filename='icon.svg', v=asset_version('icon.svg')) }}">
 <link rel="apple-touch-icon" href="{{ url_for('static', filename='icon-180.png') }}">
 <link rel="stylesheet" href="{{ url_for('static', filename='style.css', v=asset_version('style.css')) }}">
+{#- Phones, upright or sideways. app.js reads the same condition from this tag. #}
+<link rel="stylesheet" href="{{ url_for('static', filename='phone.css', v=asset_version('phone.css')) }}" id="phone-css"
+  media="(max-width: 700px), (max-width: 960px) and (max-height: 500px) and (pointer: coarse)">
 </head>
 <body data-boot="{{ boot_id }}">
 <header class="topbar">
@@ -17,6 +21,8 @@
     <a href="{{ url_for('discover_page') }}" class="{{ 'active' if request.path == '/discover' else '' }}">Discover</a>
     <a href="{{ url_for('queue_page') }}" class="{{ 'active' if request.path == '/queue' else '' }}">Queue</a>
     <a href="{{ url_for('console_page') }}" class="{{ 'active' if request.path == '/console' else '' }}">Console / CLI</a>
+    <span class="tabs-gap" aria-hidden="true"></span>
+    <a href="{{ url_for('services_page') }}" class="{{ 'active' if request.path == '/services' else '' }}">Services</a>
     <a href="{{ url_for('credentials_page') }}" class="{{ 'active' if request.path == '/credentials' else '' }}">Credentials</a>
     <a href="{{ url_for('settings_page') }}" class="{{ 'active' if request.path == '/settings' else '' }}">Settings</a>
     <a href="{{ url_for('update_page') }}" id="nav-update" class="{{ 'active' if request.path == '/update' else '' }}">Update<span class="nav-dot" hidden></span></a>
@@ -25,6 +31,35 @@
 <main class="content {% block main_class %}{% endblock %}">
   {% block content %}{% endblock %}
 </main>
+{#- On a phone these replace the tabs at the top. #}
+{% set path = request.path %}
+{% set main_tabs = [
+  ('download', 'Download', path in ('/', '/download'), 'M12 4v11m0 0-4.5-4.5M12 15l4.5-4.5M5 20h14'),
+  ('discover_page', 'Discover', path == '/discover', 'M12 3a9 9 0 1 0 0 18 9 9 0 0 0 0-18Zm3.5 5.5-2 5-5 2 2-5 5-2Z'),
+  ('queue_page', 'Queue', path == '/queue', 'M9 6h11M9 12h11M9 18h11M4.5 6h.01M4.5 12h.01M4.5 18h.01'),
+  ('console_page', 'Console', path == '/console', 'M4 5h16v14H4V5Zm3.5 4 3 3-3 3M13 15h4'),
+] %}
+{% set more_tabs = [
+  ('services_page', 'Services', path == '/services'),
+  ('credentials_page', 'Credentials', path == '/credentials'),
+  ('settings_page', 'Settings', path == '/settings'),
+  ('update_page', 'Update', path == '/update'),
+] %}
+<nav class="tabbar" aria-label="Pages">
+  {% for endpoint, label, active, icon in main_tabs %}
+  <a href="{{ url_for(endpoint) }}"{% if active %} class="active" aria-current="page"{% endif %}>
+    <span class="tab-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="{{ icon }}"/></svg></span>
+    {{ label }}</a>
+  {% endfor %}
+  <button type="button" id="btn-more" aria-haspopup="dialog"{% if more_tabs|selectattr(2)|list %} class="active"{% endif %}>
+    <span class="tab-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" aria-hidden="true"><path d="M5 12h.01M12 12h.01M19 12h.01"/></svg></span>
+    More<span class="nav-dot" hidden></span></button>
+</nav>
+<dialog id="more-sheet" class="more-sheet" aria-label="More pages">
+  {% for endpoint, label, active in more_tabs %}
+  <a href="{{ url_for(endpoint) }}"{% if active %} class="active" aria-current="page"{% endif %}>{{ label }}{% if endpoint == 'update_page' %}<span class="nav-dot" hidden></span>{% endif %}</a>
+  {% endfor %}
+</dialog>
 <script src="{{ url_for('static', filename='app.js', v=asset_version('app.js')) }}"></script>
 {% block scripts %}{% endblock %}
 </body>

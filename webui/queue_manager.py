@@ -116,6 +116,7 @@ class Job:
             "stop_requested": self.stop_requested,
             "continuation": self.continuation,
             "pin_id": self.pin_id,
+            "vpn": command_builder.vpn_of(self.form),
         }
 
     # Fields written to queue_state.json (see queue_store.py). Logs aren't saved -

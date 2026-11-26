@@ -23,7 +23,7 @@ def main():
         print("Waiting for the previous web UI to close...")
         wait_for_port(args.host, args.port)
 
-    app = create_app(ui_port=args.port)
+    app = create_app(ui_port=args.port, host=args.host)
     print(f"VT.PR.WV Web UI: http://{args.host}:{args.port}")
     # use_reloader is always off: the background job queue worker thread is a
     # process-global singleton, and Flask's reloader runs the whole module in a

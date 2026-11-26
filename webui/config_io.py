@@ -17,10 +17,12 @@ COOKIES_DIR = Path(directories.cookies)
 PROJECT_ROOT = Path(directories.package_root).parent
 DEFAULT_DOWNLOADS_DIR = PROJECT_ROOT / "downloads"
 DEFAULT_TEMP_DIR = PROJECT_ROOT / "temp"
+DEFAULT_FONTS_DIR = Path(directories.fonts)
 
 _ryaml = YAML()
 _ryaml.preserve_quotes = True
 _ryaml.allow_duplicate_keys = True
+_ryaml.width = 4096  # keep long values (links, passwords) on one line
 
 _config_lock = threading.RLock()
 
@@ -117,6 +119,20 @@ def set_credential(service_name, username, password, profile=None):
     _write_user_config(data)
 
 
+@_locked
+def credential_overview(service_names):
+    """Which services have a login saved, and which have a cookie file. No values."""
+    creds = _read_user_config().get("credentials") or {}
+    out = {}
+    for name in service_names:
+        folders = [COOKIES_DIR / name, COOKIES_DIR / name.lower()]
+        out[name] = {
+            "login": bool(creds.get(name)),
+            "cookies": any(f.is_dir() and any(f.glob("*.txt")) for f in folders),
+        }
+    return out
+
+
 def cookie_status(service_name, profile="default"):
     for candidate in (service_name, service_name.lower()):
         path = COOKIES_DIR / candidate / f"{profile}.txt"
@@ -156,7 +172,10 @@ def get_storage_paths():
     dirs = data.get("directories") or {}
     downloads = (dirs.get("downloads") or "").strip()
     temp = (dirs.get("temp") or "").strip()
+    fonts = (dirs.get("fonts") or "").strip()
     return {
+        "fonts": fonts,
+        "fonts_effective": fonts if fonts and Path(fonts).is_dir() else str(DEFAULT_FONTS_DIR),
         "downloads": downloads,
         "downloads_effective": downloads if downloads and Path(downloads).is_dir() else str(DEFAULT_DOWNLOADS_DIR),
         "temp": temp,
@@ -165,7 +184,7 @@ def get_storage_paths():
 
 
 @_locked
-def set_storage_paths(downloads=None, temp=None):
+def set_storage_paths(downloads=None, temp=None, fonts=None):
     """
     Write directories.downloads / directories.temp into vinetrimmer.yml - there is no
     per-run --downloads/--temp CLI flag, this is the only way to point the CLI at a
@@ -181,7 +200,7 @@ def set_storage_paths(downloads=None, temp=None):
         data["directories"] = CommentedMap()
     dirs = data["directories"]
 
-    for key, value in (("downloads", downloads), ("temp", temp)):
+    for key, value in (("downloads", downloads), ("temp", temp), ("fonts", fonts)):
         if value is None:
             continue
         value = value.strip()

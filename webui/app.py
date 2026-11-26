@@ -6,6 +6,7 @@ from flask import Flask, Response, jsonify, render_template, request, send_from_
 
 from . import cleanup, command_builder, config_io, paths, probe, retry, service_checks, services_info
 from . import api_server, api_settings, discover, discover_links
+from . import config_editor, folders, guard, service_manager, vpn
 from . import pins as pins_module
 from . import updater
 from .queue_manager import job_queue
@@ -14,8 +15,11 @@ TEMPLATE_DIR = Path(__file__).resolve().parent / "templates"
 STATIC_DIR = Path(__file__).resolve().parent / "static"
 
 
-def create_app(ui_port=None):
+def create_app(ui_port=None, host=None):
     app = Flask(__name__, template_folder=str(TEMPLATE_DIR), static_folder=str(STATIC_DIR))
+    app.config["MAX_CONTENT_LENGTH"] = 16 * 1024 * 1024  # cookie files and service scripts are small
+    guard.install(app)
+    can_upload = guard.upload_allowed(host)
 
     # Browsers cache /static files heuristically (Flask sends no max-age), which kept
     # serving an outdated app.js after updates. Versioning the URL by the file's
@@ -73,6 +77,7 @@ def create_app(ui_port=None):
             primary_options=[o for o in options if o["section"] == "primary"],
             advanced_options=[o for o in options if o["section"] == "advanced"],
             settings=retry.get_settings(),
+            vpn=vpn.status(),
         )
 
     @app.get("/favicon.ico")
@@ -149,8 +154,11 @@ def create_app(ui_port=None):
 
     @app.get("/settings")
     def settings_page():
-        vcodec_opt = next(o for o in command_builder.GLOBAL_OPTIONS if o["key"] == "vcodec")
-        return render_template("settings.html", vcodec_choices=vcodec_opt["choices"])
+        return render_template("settings.html")
+
+    @app.get("/services")
+    def services_page():
+        return render_template("services.html", can_upload=can_upload, in_docker=paths.in_docker())
 
     # ---- api: services ----
 
@@ -166,6 +174,7 @@ def create_app(ui_port=None):
             cdm_override=(request.args.get("cdm") or "").strip() or None,
             proxy=(request.args.get("proxy") or "").strip() or None,
             no_proxy=request.args.get("no_proxy") in ("1", "true"),
+            vpn_country=(request.args.get("vpn") or "").strip().lower()[:2] or None,
         )
         return jsonify(info)
 
@@ -345,6 +354,10 @@ def create_app(ui_port=None):
 
     # ---- api: credentials / cookies ----
 
+    @app.get("/api/credentials")
+    def credential_overview():
+        return jsonify(config_io.credential_overview([s["name"] for s in services_info.list_services()]))
+
     @app.post("/api/credentials/<service_name>")
     def set_credential(service_name):
         data = request.get_json(force=True, silent=True) or {}
@@ -466,6 +479,17 @@ def create_app(ui_port=None):
             return jsonify({"error": "not found"}), 404
         return jsonify({"ok": True})
 
+    @app.post("/api/pins/<pin_id>/vpn")
+    def pin_vpn(pin_id):
+        country = (request.get_json(force=True, silent=True) or {}).get("country")
+        try:
+            pin = pins.set_vpn(pin_id, str(country or ""))
+        except ValueError as e:
+            return jsonify({"error": str(e)}), 400
+        if not pin:
+            return jsonify({"error": "not found"}), 404
+        return jsonify({"ok": True})
+
     @app.delete("/api/pins/<pin_id>")
     def delete_pin(pin_id):
         return jsonify({"ok": pins.unpin(pin_id)})
@@ -478,10 +502,119 @@ def create_app(ui_port=None):
     def set_storage_paths():
         data = request.get_json(force=True, silent=True) or {}
         try:
-            result = config_io.set_storage_paths(downloads=data.get("downloads"), temp=data.get("temp"))
+            result = config_io.set_storage_paths(downloads=data.get("downloads"), temp=data.get("temp"),
+                                                 fonts=data.get("fonts"))
         except OSError as e:
             return jsonify({"error": f"Could not create directory: {e}"}), 400
         return jsonify(result)
+
+    # ---- api: folder picker (see folders.py) ----
+
+    @app.get("/api/folders")
+    def list_folders():
+        return jsonify(folders.listing(request.args.get("path")))
+
+    @app.post("/api/folders")
+    def create_folder():
+        data = request.get_json(force=True, silent=True) or {}
+        try:
+            return jsonify(folders.create(str(data.get("parent") or ""), str(data.get("name") or "")))
+        except ValueError as e:
+            return jsonify({"error": str(e)}), 400
+
+    # ---- api: vinetrimmer.yml (see config_editor.py) ----
+
+    @app.get("/api/config")
+    def get_config():
+        return jsonify(config_editor.read())
+
+    @app.post("/api/config/<section>")
+    def save_config(section):
+        try:
+            return jsonify(config_editor.save(section, request.get_json(force=True, silent=True)))
+        except ValueError as e:
+            return jsonify({"error": str(e)}), 400
+        except OSError as e:
+            return jsonify({"error": f"vinetrimmer.yml couldn't be written: {e}"}), 500
+
+    @app.post("/api/vaults/check")
+    def check_vaults():
+        return jsonify(config_editor.check_vaults())
+
+    @app.get("/api/service-options/<service_name>")
+    def service_option_list(service_name):
+        info = services_info.get_service_options(service_name)
+        if not info:
+            return jsonify({"error": "unknown service"}), 404
+        return jsonify(info["options"])
+
+    # ---- api: VPN (see vpn.py) ----
+
+    @app.get("/api/vpn")
+    def vpn_status():
+        return jsonify({**vpn.status(), "home": service_checks.current_country()[0]})
+
+    @app.post("/api/vpn")
+    def vpn_save():
+        try:
+            vpn.save(request.get_json(force=True, silent=True) or {})
+        except (ValueError, TypeError, AttributeError) as e:
+            return jsonify({"error": str(e)}), 400
+        return vpn_status()
+
+    @app.post("/api/vpn/test")
+    def vpn_check():
+        data = request.get_json(force=True, silent=True) or {}
+        try:
+            return jsonify(vpn.test(str(data.get("country") or "")))
+        except ValueError as e:
+            return jsonify({"error": str(e)}), 400
+
+    # ---- api: service files (Services tab, see service_manager.py) ----
+
+    def _upload_refused():
+        if not can_upload:
+            return jsonify({"error": "Changing service files is switched off. See the note on this page."}), 403
+        if job_queue.is_busy() or probe.active():
+            return jsonify({"error": "A download or check is running. Wait until it's done."}), 409
+        return None
+
+    @app.get("/api/service-files")
+    def service_files():
+        return jsonify(service_manager.listing())
+
+    @app.get("/api/service-files/<service_name>")
+    def service_report(service_name):
+        if service_name not in {s["name"] for s in services_info.list_services()}:
+            return jsonify({"error": "unknown service"}), 404
+        return jsonify(service_manager.report(service_name))
+
+    @app.post("/api/service-files")
+    def service_upload():
+        refused = _upload_refused()
+        if refused:
+            return refused
+        files = [(f.filename, f.read()) for f in request.files.getlist("files") if f and f.filename]
+        try:
+            return jsonify(service_manager.install(files, request.form.get("service") or None))
+        except ValueError as e:
+            return jsonify({"error": str(e)}), 400
+        except OSError as e:
+            return jsonify({"error": f"The files couldn't be written: {e}"}), 500
+
+    @app.post("/api/service-files/<service_name>/restore")
+    def service_restore(service_name):
+        refused = _upload_refused()
+        if refused:
+            return refused
+        if service_name not in {s["name"] for s in services_info.list_services()}:
+            return jsonify({"error": "unknown service"}), 404
+        try:
+            return jsonify(service_manager.restore(service_name))
+        except ValueError as e:
+            return jsonify({"error": str(e)}), 400
+        except OSError as e:
+            return jsonify({"error": f"The files couldn't be restored: {e}"}), 500
 
     # ---- api: temp folder (manual full cleanup) ----
 

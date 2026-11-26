@@ -31,6 +31,8 @@ crash_*.log
 /webui/poster_cache.json
 /webui/pins.json
 /webui/api_settings.json
+/webui/service_backups/
+/vinetrimmer/vinetrimmer.yml.*
 /docker-data/
 # installed per machine with npm ci
 /vinetrimmer/pot_provider/server/node_modules/

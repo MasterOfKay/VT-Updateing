@@ -9,6 +9,7 @@ from urllib.parse import urlparse, urlunparse
 
 from vinetrimmer.utils.downloaders.aria2c import aria2c
 from vinetrimmer.utils.collections import as_list
+from vinetrimmer.utils.proxy_bridge import local_proxy
 
 AUDIO_CODEC_MAP = {"AAC": "mp4a", "aac": "mp4a", "AC3": "ac-3", "EC3": "ec-3", "mp4a": "mp4a", "ec-3": "ec-3", "ac-3": "ac-3"}
 VIDEO_CODEC_MAP = {"H.264": "avc1", "avc1": "avc1", "hev1": "hev1", "hvc1": "hvc1", "H.265": "hvc1", "AV1": "av01", "av1": "av01", "av01": "av01", "dvhe": "dvh", "HLG": "hev"}
@@ -252,7 +253,7 @@ def n_m3u8dl(uri, out, track, source, headers=None, proxy=None, quiet=False, pro
     ]
 
     if proxy is not None:
-        arguments.extend(["--custom-proxy", proxy])
+        arguments.extend(["--custom-proxy", local_proxy(proxy)])
 
     if headers is not None:
         header_args = [arg for k, v in headers.items() for arg in ("-H", f"{k}: {v}")]

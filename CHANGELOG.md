@@ -1,5 +1,19 @@
 # Changelog
 
+## V1.0.6
+
+- Phone layout: on a phone, the pages get a bottom navigation bar, larger controls, the Download buttons always within reach, the queue as cards and full-screen dialogs. On a computer nothing changes
+- VPN switch with a country list on the Download page: the check and the whole download go through your VPN provider (NordVPN, Surfshark or your own HTTP / HTTPS proxies). It's remembered per service, pinned shows keep their route, and the Queue tab can change it
+- Command line: `--proxy-downloads` sends the tracks through the proxy too; `.prd` PlayReady devices are loaded
+- Credentials tab: service logins and cookies in one place, plus a VPN section with a connection test
+- Settings tab rebuilt: everything in vinetrimmer.yml (downloader per service, devices found in your devices folder, remote CDMs, key vaults, file names, subtitles, default options, profiles, headers) and a folder picker for the download, temp and fonts folders
+- New Services tab: what each service needs, replacing its files, or adding a new service by uploading its .py and .yml
+- Download, Console, Credentials, Settings and Update pages use the whole window
+- External API: `vpn` and `location` in a request, and `GET /api/v1/vpn`
+- The web UI refuses changes sent by other websites
+- Fixed: a track downloaded with N_m3u8DL-RE was downloaded again with aria2c, which overwrote it with the playlist text
+- Fixed: a proxy login containing characters such as `@` didn't work, and the login no longer appears in logs
+
 ## 1.0.5
 - Discover "All": browse everything on the chosen services, in JustWatch's order or sorted by title A to Z / Z to A (up to 40,000 titles)
 - Discover: colored badges show whether an offer is included in the subscription, free, an extra channel or rent / buy, and a filter shows only subscription & free or only rent & buy; DVD / Blu-ray offers are marked as physical discs, with only a link to the shop

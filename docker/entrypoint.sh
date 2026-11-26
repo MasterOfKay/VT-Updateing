@@ -35,10 +35,15 @@ for name in devices cookies certs cache; do
 done
 
 # The services are code: while the project folder is mounted, take its current version on
-# every start, so updating the folder updates the container. Other files are left alone.
+# every start, so updating the folder updates the container. Scripts uploaded on the web
+# UI's Services tab (listed in .webui-uploads) and other files are left alone.
 if [ -d "$SRC/vinetrimmer/services" ]; then
+    uploads="$DATA/services/.webui-uploads"
     (cd "$SRC/vinetrimmer/services" &&
-        find . -name '*.py' ! -path '*/__pycache__/*' -exec cp --parents {} "$DATA/services/" \;)
+        find . -name '*.py' ! -path '*/__pycache__/*' | while IFS= read -r file; do
+            if [ -f "$uploads" ] && grep -qxF "${file#./}" "$uploads"; then continue; fi
+            cp --parents "$file" "$DATA/services/"
+        done)
 fi
 
 # Netflix ESN files live next to the program.

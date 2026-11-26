@@ -18,3 +18,7 @@ services:
       - .:/import:ro
     # On Linux, to own the downloaded files as your own user:
     # user: "1000:1000"
+    # Allows adding and replacing services on the web UI's Services tab. Those files are
+    # code that runs here, so only with a password in front of the web UI (see DOCKER.md).
+    # environment:
+    #   VT_WEBUI_SERVICE_UPLOAD: "1"

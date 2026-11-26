@@ -7,12 +7,12 @@ import subprocess
 import threading
 import time
 import httpx
-import pproxy
 import requests
 import yaml
 import tqdm
 import logging
 from vinetrimmer import config
+from vinetrimmer.utils.proxy_bridge import local_proxy
 from pathlib import Path
 
 try:
@@ -142,20 +142,6 @@ def get_ip_info(session=None, fresh=False):
     return _ip_info
 
 
-@contextlib.asynccontextmanager
-async def start_pproxy(host, port, username, password):
-    rerouted_proxy = "http://localhost:8081"
-    server = pproxy.Server(rerouted_proxy)
-    remote = pproxy.Connection(f"http+ssl://{host}:{port}#{username}:{password}")
-    handler = await server.start_server(dict(rserver=[remote]))
-    try:
-        yield rerouted_proxy
-    finally:
-        handler.close()
-        await handler.wait_closed()
-
-
-
 def download_range(url, count, start=0, proxy=None):
     """Download n bytes without using the Range header due to support issues."""
     # TODO: Can this be done with Aria2c?
@@ -196,29 +182,6 @@ def download_range(url, count, start=0, proxy=None):
                 break
     curl.kill()  # stop downloading
     return buffer
-
-
-def _download_via_pproxy(arguments, uri, out, segmented, segments_dir, proxy):
-    """
-    Route aria2c through a local pproxy instance, needed for https:// proxies.
-
-    pproxy only has an async API, so this one branch still creates an event loop.
-    Everything else in aria2c() is synchronous on purpose - see the note there.
-    """
-    async def run():
-        auth, hostname = proxy[8:].split("@")
-        async with start_pproxy(*hostname.split(":"), *auth.split(":")) as pproxy_:
-            arguments.extend([pproxy_, "-d"])
-            if segmented:
-                arguments.extend([segments_dir, "-i-"])
-                proc = await asyncio.create_subprocess_exec(*arguments, stdin=subprocess.PIPE)
-                await proc.communicate(uri.encode("utf-8"))
-            else:
-                arguments.extend([os.path.dirname(out), uri])
-                proc = await asyncio.create_subprocess_exec(*arguments)
-                await proc.communicate()
-
-    asyncio.run(run())
 
 
 def aria2c(uri, out, headers=None, proxy=None, quiet=False, progress_callback=None):
@@ -293,11 +256,8 @@ def aria2c(uri, out, headers=None, proxy=None, quiet=False, progress_callback=No
         ])
 
     if proxy:
-        arguments.append("--all-proxy")
-        if proxy.lower().startswith("https://"):
-            _download_via_pproxy(arguments, uri, out, segmented, segments_dir, proxy)
-        else:
-            arguments.append(proxy)
+        proxy = local_proxy(proxy)  # aria2c can't talk to https:// proxies itself
+        arguments.extend(["--all-proxy", proxy])
 
     # With a progress_callback we parse aria2c's own status line rather than
     # inferring progress from the file size on disk, so its output has to be

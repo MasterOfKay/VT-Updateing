@@ -94,6 +94,14 @@ def create_api_app(requests_):
         from . import services_info  # lazy: see queue_manager.retry()
         return jsonify([{"name": s["name"], "aliases": s["aliases"]} for s in services_info.list_services()])
 
+    @app.get("/api/v1/vpn")
+    def vpn_locations():
+        """What "vpn" / "location" in a request can be."""
+        from . import vpn
+        state = vpn.status()
+        return jsonify({"ready": state["ready"], "provider": state["provider_name"], "message": state["problem"],
+                        "locations": state["countries"] if state["ready"] else []})
+
     @app.post("/api/v1/requests")
     def create():
         data = body()
@@ -128,7 +136,7 @@ def create_api_app(requests_):
         data = found.to_dict()
         # Only progress - not the command line, which can hold things like a proxy login.
         keep = ("id", "status", "service", "display_name", "display_year", "poster", "current_episode",
-                "episodes", "created_at", "started_at", "finished_at", "attempt")
+                "episodes", "created_at", "started_at", "finished_at", "attempt", "vpn")
         return jsonify({k: data[k] for k in keep})
 
     @app.get("/api/v1/progress")

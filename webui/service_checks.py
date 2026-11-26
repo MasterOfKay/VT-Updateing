@@ -254,10 +254,11 @@ def resolve_cdm(service_name, profile=None, cdm_override=None):
     kind = "PlayReady SL3000" if "sl3000" in lower else "PlayReady SL2000" if "sl2000" in lower else "Widevine"
     device_dir = devices / name
     if device_dir.is_dir() and (device_dir / "zgpriv.dat").is_file() and (device_dir / "bgroupcert.dat").is_file():
-        return name, kind, OK, f"PlayReady device folder found ({device_dir.name})."
-    if "sl2000" in lower or "sl3000" in lower:
-        if (devices / f"{name}.prd").is_file():
-            return name, kind, OK, f"Device file found ({name}.prd)."
+        return name, kind if kind != "Widevine" else "PlayReady", OK, f"PlayReady device folder found ({device_dir.name})."
+    prd, wvd = devices / f"{name}.prd", devices / f"{name}.wvd"
+    if "sl2000" in lower or "sl3000" in lower or (prd.is_file() and not wvd.is_file()):
+        if prd.is_file():
+            return name, kind if kind != "Widevine" else "PlayReady", OK, f"Device file found ({name}.prd)."
     elif (devices / f"{name}.wvd").is_file():
         return name, kind, OK, f"Device file found ({name}.wvd)."
 
@@ -350,7 +351,7 @@ def _proxy_available(region):
 
 # ---------------------------------------------------------------- the check
 
-def check_service(service_name, profile=None, cdm_override=None, proxy=None, no_proxy=False):
+def check_service(service_name, profile=None, cdm_override=None, proxy=None, no_proxy=False, vpn_country=None):
     key, source = _service_source(service_name)
     if not key:
         return None
@@ -457,7 +458,20 @@ def check_service(service_name, profile=None, cdm_override=None, proxy=None, no_
     geofence = list(getattr(importlib.import_module(f"vinetrimmer.services.{key.lower()}"), key).GEOFENCE or [])
     requires_ip = re.search(r"requires? an? ([A-Z]{2}) IP", source or "")
     region = (geofence[0] if geofence else (requires_ip.group(1) if requires_ip else None))
-    if region:
+    if vpn_country:
+        from . import vpn
+        state = vpn.status()
+        name = vpn.country_name(vpn_country)
+        if not state["ready"]:
+            add("VPN", ERROR, state["problem"])
+        elif vpn_country not in {c["code"] for c in state["countries"]}:
+            add("VPN", ERROR, f"{state['provider_name']} has no entry for {name}.")
+        else:
+            add("VPN", OK, f"Everything this job does goes through {name} ({state['provider_name']}), "
+                           "logging in and downloading.")
+        if region and region.lower() != vpn_country:
+            add("Region", WARN, f"Needs a {region.upper()} IP, but the VPN is set to {name}.")
+    elif region:
         region = region.lower()
         if no_proxy:
             add("Region", WARN, f"Needs a {region.upper()} IP and --no-proxy is set. This only works if you're already there.")

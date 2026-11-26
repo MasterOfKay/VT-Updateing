@@ -14,7 +14,7 @@ import threading
 import time
 import uuid
 
-from . import api_settings, command_builder, discover_links, probe, retry
+from . import api_settings, command_builder, discover_links, probe, retry, vpn
 
 CODECS = {"h264": "H.264", "h265": "H.265", "av1": "AV1", "vp9": "VP9"}
 RANGE_LABELS = {"sdr": "SDR", "hdr10": "HDR10", "hlg": "HLG", "dv": "DV", "dvhdr": "DV+HDR",
@@ -125,6 +125,34 @@ def _languages(data, key):
     return value
 
 
+def parse_vpn(data):
+    """`"vpn": true` with `"location": "id"` (or `"vpn": "id"`): the country the check
+    and the download go through. None without a VPN."""
+    switch = data.get("vpn")
+    place = str(data.get("location") or data.get("vpn_country") or "").strip().lower()
+    if isinstance(switch, str):
+        word = switch.strip().lower()
+        if word in ("off", "false", "no", "0", ""):
+            switch = False
+        elif word in ("on", "true", "yes", "1"):
+            switch = True
+        else:
+            switch, place = True, word
+    if switch is None:
+        switch = bool(place)
+    if not switch:
+        return None
+    if not re.fullmatch(r"[a-z]{2}", place):
+        raise RequestError('vpn: also send "location", a two-letter country code such as id or us '
+                           "(GET /api/v1/vpn lists them).")
+    state = vpn.status()
+    if not state["ready"]:
+        raise RequestError(f"No VPN can be used on this server: {state['problem']}", 409)
+    if place not in {c["code"] for c in state["countries"]}:
+        raise RequestError(f"The VPN has no location '{place}'. GET /api/v1/vpn lists them.")
+    return place
+
+
 def parse(data):
     """The cleaned request, or RequestError."""
     from . import services_info  # lazy: see queue_manager.retry()
@@ -175,6 +203,7 @@ def parse(data):
         "quality": parse_quality(data.get("quality")), "wanted": parse_wanted(data),
         "audio_lang": _languages(data, "audio_lang"), "sub_lang": _languages(data, "sub_lang"),
         "check_keys": bool(data.get("check_keys")), "candidates": candidates,
+        "vpn": parse_vpn(data),
     }
 
 
@@ -289,6 +318,7 @@ class Request:
                 "codec": spec["codec"], "range": spec["range"],
                 "quality": spec["quality"] or "best", "wanted": spec["wanted"],
                 "audio_lang": spec["audio_lang"], "sub_lang": spec["sub_lang"],
+                "vpn": bool(spec["vpn"]), "location": spec["vpn"],
             },
             "title": self.title, "exact": self.exact, "offer": self.offer, "options": self.options,
             "audio_languages": self.audio_languages, "subtitle_languages": self.subtitle_languages,
@@ -470,6 +500,8 @@ class Requests:
 
     def _form(self, spec, codec, range_):
         form = {"service": spec["service"], "title": spec["title"], "vcodec": codec, "range_": range_}
+        if spec["vpn"]:
+            form.update(vpn=True, vpn_country=spec["vpn"])
         if spec["wanted"]:
             form["wanted"] = spec["wanted"]
         if spec["audio_lang"]:

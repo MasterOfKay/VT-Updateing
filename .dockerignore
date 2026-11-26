@@ -23,6 +23,8 @@ vinetrimmer/playback_sessions
 vinetrimmer/services
 vinetrimmer/config/services
 webui/*.json*
+webui/service_backups
+vinetrimmer/vinetrimmer.yml.*
 **/*.wvd
 **/*.prd
 **/*.db

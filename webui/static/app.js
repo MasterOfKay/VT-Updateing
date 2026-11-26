@@ -2,13 +2,62 @@ document.addEventListener("DOMContentLoaded", () => {
   if (document.getElementById("download-form")) initDownloadPage();
   if (document.getElementById("job-table-body")) initQueuePage();
   if (document.getElementById("console-output")) initConsolePage();
-  if (document.getElementById("cred-service")) initCredentialsPage();
   if (document.getElementById("storage-paths")) initStoragePaths();
-  if (document.getElementById("setting-progress-display")) initPreferences();
+  if (document.getElementById("retry-settings")) initPreferences();
   if (document.getElementById("update-list")) initUpdatePage();
   if (document.getElementById("api-settings")) initApiSettings();
+  initPhone();
   checkUpdateBadge();
 });
+
+// Phone layout
+function initPhone() {
+  const sheet = document.getElementById("more-sheet");
+  document.getElementById("btn-more").addEventListener("click", () => sheet.showModal());
+  // closes on a page link, and on a tap on the dimmed page around the sheet
+  sheet.addEventListener("click", (e) => { if (e.target === sheet || e.target.closest("a")) sheet.close(); });
+
+  const phone = window.matchMedia(document.getElementById("phone-css").media);
+  document.querySelectorAll(".split > aside.rail").forEach((rail) => initRailPicker(rail, phone));
+  // the form it opens sits below the whole list of services
+  const add = document.getElementById("btn-new-service");
+  if (add) add.addEventListener("click", () => {
+    if (phone.matches) requestAnimationFrame(() => document.querySelector(".split-main").scrollIntoView({ block: "start" }));
+  });
+  if (phone.matches) {
+    // long blocks start folded, so the page stays short
+    document.querySelectorAll(".command-details, #service-options-wrap").forEach((fold) => { fold.open = false; });
+  }
+}
+
+// A list beside its details takes a whole phone screen. Once something is chosen, the
+// list folds into one button naming it.
+function initRailPicker(rail, phone) {
+  const list = rail.querySelector(".rail-list");
+  if (!list) return;
+  const button = document.createElement("button");
+  button.type = "button";
+  button.className = "rail-picker";
+  rail.prepend(button);
+  const open = (on) => {
+    rail.classList.toggle("open", on);
+    button.setAttribute("aria-expanded", on);
+  };
+  const follow = () => {
+    const name = list.querySelector(".rail-item.active .rail-title");
+    rail.classList.toggle("chosen", !!name);
+    if (name && button.textContent !== name.textContent) button.textContent = name.textContent;
+  };
+  button.addEventListener("click", () => open(!rail.classList.contains("open")));
+  list.addEventListener("click", (e) => {
+    if (!e.target.closest(".rail-item")) return;
+    open(false);
+    if (phone.matches) rail.scrollIntoView({ block: "start" });
+  });
+  new MutationObserver(follow).observe(list, { subtree: true, childList: true, attributes: true, attributeFilter: ["class"] });
+  open(false);
+  follow();
+}
 
 /* ---------------- Storage paths (downloads / temp folders) ---------------- */
 
@@ -54,29 +103,29 @@ function cleanTempFolder() {
     })
     .then((info) => {
       showTempUsage(info);
-      msg.textContent = `Removed ${info.removed} item(s).` +
-        (info.failed.length ? ` Could not delete (in use?): ${info.failed.join(", ")}` : "");
+      say(msg, `Removed ${info.removed} item(s).` +
+        (info.failed.length ? ` Could not delete (in use?): ${info.failed.join(", ")}` : ""),
+        info.failed.length ? "" : "ok");
     })
-    .catch((e) => { msg.textContent = e.message; });
+    .catch((e) => { say(msg, e.message, "err"); });
+}
+
+const STORAGE_KEYS = ["downloads", "temp", "fonts"];
+
+function showStoragePaths(paths) {
+  STORAGE_KEYS.forEach((key) => {
+    document.getElementById(`storage-${key}`).value = paths[key] || "";
+    document.getElementById(`storage-${key}-effective`).textContent = paths[`${key}_effective`];
+  });
 }
 
 function loadStoragePaths() {
-  fetch("/api/storage-paths")
-    .then((r) => r.json())
-    .then((paths) => {
-      document.getElementById("storage-downloads").value = paths.downloads || "";
-      document.getElementById("storage-downloads-effective").textContent = paths.downloads_effective;
-      document.getElementById("storage-temp").value = paths.temp || "";
-      document.getElementById("storage-temp-effective").textContent = paths.temp_effective;
-    });
+  fetch("/api/storage-paths").then((r) => r.json()).then(showStoragePaths);
 }
 
 function saveStoragePaths() {
   const msg = document.getElementById("storage-message");
-  const payload = {
-    downloads: document.getElementById("storage-downloads").value,
-    temp: document.getElementById("storage-temp").value,
-  };
+  const payload = Object.fromEntries(STORAGE_KEYS.map((key) => [key, document.getElementById(`storage-${key}`).value]));
   fetch("/api/storage-paths", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
@@ -88,14 +137,11 @@ function saveStoragePaths() {
       return body;
     })
     .then((paths) => {
-      document.getElementById("storage-downloads").value = paths.downloads || "";
-      document.getElementById("storage-downloads-effective").textContent = paths.downloads_effective;
-      document.getElementById("storage-temp").value = paths.temp || "";
-      document.getElementById("storage-temp-effective").textContent = paths.temp_effective;
-      msg.textContent = "Saved. New jobs will use these paths right away.";
+      showStoragePaths(paths);
+      say(msg, "Saved. New jobs use these folders right away.", "ok");
     })
     .catch((e) => {
-      msg.textContent = e.message;
+      say(msg, e.message, "err");
     });
 }
 
@@ -117,7 +163,7 @@ function initApiSettings() {
     el("api-key").value = s.key;
     const host = s.host === "0.0.0.0" ? window.location.hostname : "127.0.0.1";
     el("api-url").textContent = s.running ? `Running at http://${host}:${s.port}/api/v1` : "Not running.";
-    if (s.error) message.textContent = s.error;
+    if (s.error) say(message, s.error, "err");
   };
 
   const send = (path, body) => fetch(path, body === undefined ? {} : {
@@ -127,17 +173,17 @@ function initApiSettings() {
     if (!r.ok) throw new Error(data.error || "Restart the web UI to use the API.");
     return data;
   });
-  const failed = (e) => { message.textContent = e.message; };
+  const failed = (e) => { say(message, e.message, "err"); };
 
   send("/api/external-api").then(fill).catch(failed);
   el("btn-api-save").addEventListener("click", () => {
-    message.textContent = "";
+    say(message, "");
     send("/api/external-api", {
       enabled: el("api-enabled").checked, host: el("api-host").value, port: el("api-port").value,
       wait_same_service: el("api-wait").checked, auto_start: el("api-autostart").checked,
     }).then((s) => {
       fill(s);
-      if (!s.error) message.textContent = "Saved.";
+      if (!s.error) say(message, "Saved.", "ok");
     }).catch(failed);
   });
   el("btn-api-show").addEventListener("click", () => {
@@ -149,35 +195,26 @@ function initApiSettings() {
     const key = el("api-key");
     // The clipboard API only exists on localhost / HTTPS.
     const copy = navigator.clipboard ? navigator.clipboard.writeText(key.value) : Promise.reject(new Error());
-    copy.then(() => { message.textContent = "Key copied."; }).catch(() => {
+    copy.then(() => { say(message, "Key copied.", "ok"); }).catch(() => {
       key.type = "text";
       key.select();
-      message.textContent = "Press Ctrl+C to copy the selected key.";
+      say(message, "Press Ctrl+C to copy the selected key.");
     });
   });
   el("btn-api-newkey").addEventListener("click", () => {
     if (!confirm("Make a new key? Scripts using the old one stop working.")) return;
     send("/api/external-api/key", {}).then((s) => {
       fill(s);
-      message.textContent = "New key made.";
+      say(message, "New key made.", "ok");
     }).catch(failed);
   });
 }
 
-/* ---------------- Preferences (progress display, default alang/slang/vcodec) ---------------- */
+/* ---------------- Web UI preferences ---------------- */
 
 function initPreferences() {
-  loadPreferences();
-  document.getElementById("setting-progress-display").addEventListener("change", (e) => {
-    fetch("/api/preferences", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ progress_display: e.target.checked }),
-    });
-  });
-  document.getElementById("btn-save-preferences").addEventListener("click", saveDefaultPreferences);
-  const retryBtn = document.getElementById("btn-save-retry");
-  if (retryBtn) retryBtn.addEventListener("click", saveRetrySettings);
+  fetch("/api/preferences").then((r) => r.json()).then(fillRetrySettings);
+  document.getElementById("btn-save-retry").addEventListener("click", saveRetrySettings);
   initInstantSettings();
 }
 
@@ -200,7 +237,7 @@ function initInstantSettings() {
       const value = el.type === "checkbox" ? el.checked : el.value;
       saveUiSetting(key, value).then(() => {
         const msg = document.getElementById("experimental-message");
-        if (msg && id !== "setting-console-view") msg.textContent = "Saved.";
+        if (msg && id !== "setting-console-view") say(msg, "Saved.", "ok");
       });
     });
   });
@@ -245,48 +282,10 @@ function saveRetrySettings() {
     .then((r) => r.json())
     .then((prefs) => {
       fillRetrySettings(prefs);
-      msg.textContent = prefs.retry ? "Saved." : "Restart the web UI to use this setting.";
+      say(msg, prefs.retry ? "Saved." : "Restart the web UI to use this setting.", prefs.retry ? "ok" : "");
     })
     .catch((e) => {
-      msg.textContent = e.message;
-    });
-}
-
-function loadPreferences() {
-  fetch("/api/preferences")
-    .then((r) => r.json())
-    .then((prefs) => {
-      document.getElementById("setting-progress-display").checked = prefs.progress_display;
-      document.getElementById("setting-alang").value = prefs.defaults.alang || "";
-      document.getElementById("setting-slang").value = prefs.defaults.slang || "";
-      document.getElementById("setting-vcodec").value = prefs.defaults.vcodec || "";
-      fillRetrySettings(prefs);
-    });
-}
-
-function saveDefaultPreferences() {
-  const msg = document.getElementById("preferences-message");
-  const payload = {
-    defaults: {
-      alang: document.getElementById("setting-alang").value,
-      slang: document.getElementById("setting-slang").value,
-      vcodec: document.getElementById("setting-vcodec").value,
-    },
-  };
-  fetch("/api/preferences", {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify(payload),
-  })
-    .then((r) => r.json())
-    .then((prefs) => {
-      document.getElementById("setting-alang").value = prefs.defaults.alang || "";
-      document.getElementById("setting-slang").value = prefs.defaults.slang || "";
-      document.getElementById("setting-vcodec").value = prefs.defaults.vcodec || "";
-      msg.textContent = "Saved. The Download page will prefill these (reload it if it's already open).";
-    })
-    .catch((e) => {
-      msg.textContent = e.message;
+      say(msg, e.message, "err");
     });
 }
 
@@ -294,6 +293,13 @@ function escapeHtml(s) {
   return String(s ?? "").replace(/[&<>"']/g, (c) => ({
     "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;",
   }[c]));
+}
+
+// A status line under a button. kind: "ok", "err" or nothing for a note.
+function say(node, text, kind) {
+  node.textContent = text;
+  node.classList.toggle("ok", kind === "ok");
+  node.classList.toggle("err", kind === "err");
 }
 
 // Native <select> option lists don't wrap or ellipsis long text (and OS-native
@@ -310,13 +316,95 @@ function truncateMiddle(str, maxLen) {
   return str.slice(0, front) + "…" + str.slice(str.length - back);
 }
 
+// VPN
+const regionNames = typeof Intl.DisplayNames === "function"
+  ? new Intl.DisplayNames(["en"], { type: "region" }) : null;
+
+function countryName(code) {
+  const upper = String(code || "").toUpperCase();
+  try { return (regionNames && regionNames.of(upper)) || upper; } catch (e) { return upper; }
+}
+
+// Shown wherever a job or pinned show goes through the VPN.
+function routeBadge(code) {
+  return `<span class="route-badge" title="Goes through the VPN">VPN ${escapeHtml(countryName(code))}</span>`;
+}
+
+// The Download page remembers the switch for every service, so Netflix can stay on
+// Indonesia while Disney+ keeps using the normal connection.
+const VPN_MEMORY_KEY = "vt-vpn";
+
+function vpnMemory() {
+  try { return JSON.parse(localStorage.getItem(VPN_MEMORY_KEY)) || {}; } catch (e) { return {}; }
+}
+
+function rememberVpn() {
+  const service = document.getElementById("service").value;
+  const on = document.getElementById("vpn-on").checked;
+  const country = document.getElementById("vpn-country").value;
+  const memory = vpnMemory();
+  if (country) memory.last = country;
+  if (service) memory.services = { ...memory.services, [service]: { on, country } };
+  try { localStorage.setItem(VPN_MEMORY_KEY, JSON.stringify(memory)); } catch (e) { /* private mode */ }
+}
+
+function recallVpn() {
+  const toggle = document.getElementById("vpn-on");
+  if (!toggle || toggle.disabled) return;
+  const select = document.getElementById("vpn-country");
+  const saved = (vpnMemory().services || {})[document.getElementById("service").value] || {};
+  select.value = saved.country || "";
+  if (select.selectedIndex < 0) select.value = "";
+  toggle.checked = !!saved.on;
+}
+
+// "VineTrimmer -> via Indonesia -> Netflix": which way the next check or job goes.
+function renderRoute() {
+  const box = document.getElementById("connection");
+  if (!box) return;
+  const on = document.getElementById("vpn-on").checked;
+  const country = document.getElementById("vpn-country").value;
+  const select = document.getElementById("vpn-country");
+  const service = document.getElementById("service").value;
+  box.classList.toggle("via-vpn", on);
+  document.getElementById("route-via").textContent = !on ? "Your own connection"
+    : country ? `VPN: ${select.options[select.selectedIndex].text.trim()}` : "VPN: choose a country";
+  document.getElementById("route-service").textContent = service || "Service";
+}
+
+function initConnection() {
+  const toggle = document.getElementById("vpn-on");
+  if (!toggle) return;
+  const select = document.getElementById("vpn-country");
+  toggle.addEventListener("change", () => {
+    if (toggle.checked && !select.value) {
+      select.value = vpnMemory().last || "";
+      if (select.selectedIndex < 0) select.value = "";
+      if (!select.value) select.focus();
+    }
+    rememberVpn();
+    renderRoute();
+  });
+  // Choosing a country means using it.
+  select.addEventListener("change", () => {
+    if (select.value) toggle.checked = true;
+    rememberVpn();
+    renderRoute();
+  });
+  renderRoute();
+}
+
 /* ---------------- Download page ---------------- */
 
 let previewTimer = null;
 
 function initDownloadPage() {
   const form = document.getElementById("download-form");
-  document.getElementById("service").addEventListener("change", onServiceChange);
+  document.getElementById("service").addEventListener("change", () => {
+    recallVpn();
+    onServiceChange();
+  });
+  initConnection();
   document.getElementById("opt_vcodec").addEventListener("change", updateRangeGating);
   form.addEventListener("input", schedulePreview);
   form.addEventListener("change", schedulePreview);
@@ -357,6 +445,7 @@ function prefillDownload(params) {
   const serviceEl = document.getElementById("service");
   serviceEl.value = params.get("service");
   if (serviceEl.value !== params.get("service")) return;
+  recallVpn();
   document.getElementById("title").value = params.get("title");
   const wanted = (params.get("wanted") || "").toUpperCase();
   const wantedEl = document.getElementById("opt_wanted");
@@ -579,6 +668,7 @@ function onServiceChange() {
 
   svcBody.innerHTML = "";
   authBody.innerHTML = "";
+  renderRoute();
 
   if (!service) {
     svcFieldset.hidden = true;
@@ -610,7 +700,7 @@ function onServiceChange() {
 
 // The requirement check depends on these Download-form fields, since they change
 // which cookie file/credential (-p), CDM (--cdm) and proxy the CLI will use.
-const CHECK_FIELDS = ["opt_profile", "opt_cdm", "opt_proxy", "opt_no_proxy"];
+const CHECK_FIELDS = ["opt_profile", "opt_cdm", "opt_proxy", "opt_no_proxy", "vpn-on", "vpn-country"];
 let lastCheck = null;
 let recheckTimer = null;
 
@@ -621,6 +711,7 @@ function serviceInfoUrl(service) {
   if (el("opt_cdm") && el("opt_cdm").value) params.set("cdm", el("opt_cdm").value);
   if (el("opt_proxy") && el("opt_proxy").value) params.set("proxy", el("opt_proxy").value);
   if (el("opt_no_proxy") && el("opt_no_proxy").checked) params.set("no_proxy", "1");
+  if (el("vpn-on") && el("vpn-on").checked && el("vpn-country").value) params.set("vpn", el("vpn-country").value);
   const qs = params.toString();
   return `/api/services/${encodeURIComponent(service)}/info${qs ? "?" + qs : ""}`;
 }
@@ -674,7 +765,8 @@ function renderServiceOption(opt) {
   const wrap = document.createElement("label");
   wrap.className = "field" + (opt.kind === "flag" ? " field-flag" : "");
   const fieldName = `svc__${opt.name}`;
-  const label = `${escapeHtml(opt.opts.join("/"))}: ${escapeHtml(opt.help)}`;
+  const help = opt.help ? opt.help.charAt(0).toUpperCase() + opt.help.slice(1) : "";
+  const label = `${escapeHtml(help)} <code class="opt-flag">${escapeHtml(opt.opts.join(" "))}</code>`;
 
   if (opt.kind === "flag") {
     wrap.innerHTML = `<input type="checkbox" name="${fieldName}"><span>${label}</span>`;
@@ -1386,6 +1478,10 @@ function pinFromForm() {
 function initQueuePage() {
   refreshJobs();
   setInterval(refreshJobs, 2000);
+  fetch("/api/vpn")
+    .then((r) => (r.ok ? r.json() : null))
+    .then((state) => { queueVpn = state; refreshPins(); })
+    .catch(() => {});
   refreshPins();
   setInterval(refreshPins, 5000);
   document.getElementById("job-table-body").addEventListener("click", onJobTableClick);
@@ -1463,6 +1559,18 @@ const PIN_INTERVALS = [[0, "manual only"], [1, "every hour"], [3, "every 3 h"], 
   [24, "every day"], [48, "every 2 days"], [72, "every 3 days"], [168, "every week"], [336, "every 2 weeks"], [720, "every month"]];
 const PIN_UNIT_HOURS = { hours: 1, days: 24, weeks: 168, months: 720 };
 let customPinId = null;  // the pin whose "custom interval" editor is open
+let queueVpn = null;  // /api/vpn, for the route choice of pinned shows
+
+function pinRouteSelect(pin) {
+  const countries = queueVpn && queueVpn.ready ? [...queueVpn.countries] : [];
+  if (pin.vpn && !countries.some((c) => c.code === pin.vpn)) {
+    countries.unshift({ code: pin.vpn, name: countryName(pin.vpn) });
+  }
+  if (!countries.length) return "";
+  const options = [`<option value="">own connection</option>`].concat(countries.map((c) =>
+    `<option value="${c.code}"${c.code === pin.vpn ? " selected" : ""}>VPN: ${escapeHtml(c.name)}</option>`));
+  return `<label class="hint">route <select data-pin-vpn="${pin.id}">${options.join("")}</select></label>`;
+}
 
 function intervalLabel(h) {
   const preset = PIN_INTERVALS.find(([v]) => v === h);
@@ -1521,7 +1629,7 @@ function refreshPins() {
           <div class="pin-card">
             ${p.poster ? `<img class="job-thumb" src="${escapeHtml(p.poster)}" alt="">` : `<div class="job-thumb job-thumb-empty"></div>`}
             <div class="pin-main">
-              <div class="job-title-name">${escapeHtml(p.name || p.title)}${p.year ? ` <span class="job-year">(${p.year})</span>` : ""} ${busy}</div>
+              <div class="job-title-name">${escapeHtml(p.name || p.title)}${p.year ? ` <span class="job-year">(${p.year})</span>` : ""} ${busy} ${p.vpn ? routeBadge(p.vpn) : ""}</div>
               <div class="hint">${escapeHtml(p.service)} &middot; next: <strong>${escapeHtml(p.next_episode || "from the start")}</strong>${p.last_downloaded ? ` &middot; last downloaded ${escapeHtml(p.last_downloaded)}` : ""}</div>
               <div class="hint">${escapeHtml(p.last_result || "")}${nextCheck}</div>
               ${air ? `<div class="hint pin-air">${air}</div>` : ""}
@@ -1530,6 +1638,7 @@ function refreshPins() {
               <button type="button" data-pin-check="${p.id}"${p.active_job ? " disabled" : ""}>Check now</button>
               <label class="hint">check <select data-pin-interval="${p.id}">${intervals}</select></label>
               ${customEditor}
+              ${pinRouteSelect(p)}
               <button type="button" data-pin-remove="${p.id}">Unpin</button>
             </div>
           </div>`;
@@ -1549,6 +1658,14 @@ function onPinAction(e) {
   if (e.type === "click" && t.dataset.pinCheck) {
     t.disabled = true;
     fetch(`/api/pins/${t.dataset.pinCheck}/check`, { method: "POST" }).then(() => { refreshPins(); refreshJobs(); });
+  } else if (e.type === "change" && t.dataset.pinVpn) {
+    t.blur();  // a focused field holds off the list's refresh
+    fetch(`/api/pins/${t.dataset.pinVpn}/vpn`, {
+      method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ country: t.value }),
+    }).then(async (r) => {
+      if (!r.ok) alert((await r.json().catch(() => ({}))).error || "Couldn't change the route.");
+      refreshPins();
+    });
   } else if (e.type === "click" && t.dataset.pinRemove) {
     if (!confirm("Unpin this show? Already queued checks stay in the queue as normal jobs.")) return;
     fetch(`/api/pins/${t.dataset.pinRemove}`, { method: "DELETE" }).then(() => { refreshPins(); refreshJobs(); });
@@ -1628,9 +1745,9 @@ function jobRowHtml(job) {
           : job.status === "running" && job.current_episode
             ? `<div class="hint">${escapeHtml(job.current_episode)}${eps}</div>` : "";
   return `
-    <td>${escapeHtml(job.service || "")}</td>
-    <td>${renderJobTitle(job)}${retryInfo}</td>
-    <td><span class="status status-${job.status}">${job.status}</span>${statusInfo}</td>
+    <td class="cell-service">${escapeHtml(job.service || "")}${job.vpn ? `<div class="job-route">${routeBadge(job.vpn)}</div>` : ""}</td>
+    <td class="cell-title">${renderJobTitle(job)}${retryInfo}</td>
+    <td class="cell-status"><span class="status status-${job.status}">${job.status}</span>${statusInfo}</td>
     <td class="cmd"><code>${escapeHtml(job.command)}</code></td>
     <td class="actions-cell">
       <a href="/console?job=${job.id}">Console</a>
@@ -1700,16 +1817,17 @@ function initConsolePage() {
     e.preventDefault();
     sendConsoleInput();
   });
-  const select = document.getElementById("job-select");
   const initial = document.getElementById("console-output").dataset.initialJob;
   // Opened without a specific job (?job=...): show whatever is running, and keep
   // following the queue to the next running job - until the user picks one.
   followRunning = !initial;
-  refreshJobSelect(initial);
-  setInterval(() => refreshJobSelect(), 3000);
-  select.addEventListener("change", () => {
+  refreshJobList(initial);
+  setInterval(() => refreshJobList(), 3000);
+  document.getElementById("job-list").addEventListener("click", (e) => {
+    const item = e.target.closest("[data-job-id]");
+    if (!item) return;
     followRunning = false;
-    connectToJob(select.value);
+    refreshJobList(item.dataset.jobId);
   });
   initConsoleView();
   initJobActions();
@@ -1760,17 +1878,14 @@ function initJobActions() {
     btn.disabled = true;
     const action = btn.dataset.jobAction;
     if (action === "pin") {
-      pinJob(box.dataset.job).then(() => refreshJobSelect());
+      pinJob(box.dataset.job).then(() => refreshJobList());
       return;
     }
     jobAction(box.dataset.job, action)
       .then((res) => {
         // Continue starts a new job: follow it.
-        if (action === "continue" && res.id) {
-          followRunning = true;
-          connectToJob(res.id);
-        }
-        refreshJobSelect();
+        if (action === "continue" && res.id) followRunning = true;
+        refreshJobList(action === "continue" ? res.id : undefined);
       })
       .catch((err) => alert(err.message));
   });
@@ -1853,36 +1968,60 @@ function updateJobHeader(job) {
     poster.hidden = true;
   }
   if (job.command) document.getElementById("job-command").textContent = job.command;
+  const route = document.getElementById("job-route");
+  route.hidden = !job.vpn;
+  route.textContent = job.vpn ? `VPN ${countryName(job.vpn)}` : "";
   renderJobActions(job);
 }
 
 let followRunning = false;
+let selectedJobId = "";
 
-function refreshJobSelect(preferred) {
+// Newest first, like a download list.
+function renderJobList(jobs) {
+  const list = document.getElementById("job-list");
+  document.getElementById("job-list-empty").hidden = jobs.length > 0;
+  const focused = list.contains(document.activeElement) ? document.activeElement.dataset.jobId : null;
+  setHtmlIfChanged(list, jobs.slice().reverse().map((j) => {
+    const selected = j.id === selectedJobId;
+    const poster = j.poster ? `<img class="job-thumb" src="${escapeHtml(j.poster)}" alt="" loading="lazy">`
+      : `<span class="job-thumb job-thumb-empty"></span>`;
+    const episode = j.status === "running" && j.current_episode ? `, ${j.current_episode}` : "";
+    return `<button type="button" class="rail-item rail-job${selected ? " active" : ""}" role="option"
+        aria-selected="${selected}" data-job-id="${j.id}">
+      ${poster}
+      <span class="rail-text">
+        <span class="rail-title">${escapeHtml(j.display_name || j.title || "")}</span>
+        <span class="rail-sub">${escapeHtml((j.service || "?") + episode)}</span>
+        <span class="rail-tags"><span class="status status-${j.status}">${j.status}</span>${j.vpn ? routeBadge(j.vpn) : ""}</span>
+      </span>
+    </button>`;
+  }).join(""));
+  if (focused) {
+    const item = list.querySelector(`[data-job-id="${CSS.escape(focused)}"]`);
+    if (item) item.focus();
+  }
+}
+
+function refreshJobList(preferred) {
   fetch("/api/jobs")
     .then((r) => r.json())
     .then((jobs) => {
-      const select = document.getElementById("job-select");
-      const current = select.value;
-      select.innerHTML = jobs
-        .slice()
-        .reverse()
-        .map((j) => `<option value="${j.id}">${escapeHtml(j.service || "?")}: ${escapeHtml(truncateMiddle(j.display_name || j.title, 45))} (${j.status})</option>`)
-        .join("");
-
+      const current = jobs.some((j) => j.id === selectedJobId) ? selectedJobId : "";
       const running = jobs.find((j) => j.status === "running");
       // While following: switch to the running job; once nothing runs, stay on the
       // job we were showing (its finished log) instead of jumping somewhere else.
       const followed = followRunning ? (running ? running.id : current) : "";
       const want = preferred || followed || current ||
         (running ? running.id : jobs.length ? jobs[jobs.length - 1].id : "");
+      selectedJobId = want;
+      renderJobList(jobs);
       const wanted = jobs.find((j) => j.id === want);
       if (wanted) {
         updateConsoleInputState(wanted.status);
         updateJobHeader(wanted);
       }
       if (want) {
-        select.value = want;
         // A finished job's stream ends and closes on purpose - reconnecting to it
         // on every poll rebuilt the whole log each time (the flicker, and the jump
         // back to the bottom). Only reconnect for a different job, or when a still
@@ -1898,7 +2037,7 @@ function refreshJobSelect(preferred) {
 function sendConsoleInput() {
   const input = document.getElementById("console-input");
   const msg = document.getElementById("console-input-message");
-  const jobId = document.getElementById("job-select").value;
+  const jobId = selectedJobId;
   if (!jobId) return;
   fetch(`/api/jobs/${jobId}/input`, {
     method: "POST",
@@ -2159,98 +2298,15 @@ function renderProgressPanel() {
   if (details) details.addEventListener("toggle", () => { subtitlesExpanded = details.open; });
 }
 
-/* ---------------- Credentials page ---------------- */
-
-function initCredentialsPage() {
-  document.getElementById("cred-service").addEventListener("change", loadCredStatus);
-  document.getElementById("btn-save-credential").addEventListener("click", saveCredential);
-  document.getElementById("btn-upload-cookie").addEventListener("click", uploadCookie);
-}
-
-function loadCredStatus() {
-  const service = document.getElementById("cred-service").value;
-  const statusEl = document.getElementById("cred-status");
-  if (!service) {
-    statusEl.innerHTML = "";
-    return;
-  }
-  fetch(`/api/services/${encodeURIComponent(service)}/info`)
-    .then((r) => r.json())
-    .then((info) => {
-      statusEl.innerHTML = renderServiceCheck(info.check);
-    });
-}
-
-function saveCredential() {
-  const service = document.getElementById("cred-service").value;
-  const msg = document.getElementById("cred-message");
-  if (!service) {
-    msg.textContent = "Select a service first.";
-    return;
-  }
-  const payload = {
-    username: document.getElementById("cred-username").value,
-    password: document.getElementById("cred-password").value,
-  };
-  fetch(`/api/credentials/${encodeURIComponent(service)}`, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify(payload),
-  })
-    .then(async (r) => {
-      const body = await r.json();
-      if (!r.ok) throw new Error(body.error || "Failed to save");
-      return body;
-    })
-    .then(() => {
-      msg.textContent = "Saved.";
-      document.getElementById("cred-password").value = "";
-      loadCredStatus();
-    })
-    .catch((e) => {
-      msg.textContent = e.message;
-    });
-}
-
-function uploadCookie() {
-  const service = document.getElementById("cred-service").value;
-  const msg = document.getElementById("cookie-message");
-  const fileInput = document.getElementById("cookie-file");
-  if (!service) {
-    msg.textContent = "Select a service first.";
-    return;
-  }
-  if (!fileInput.files.length) {
-    msg.textContent = "Choose a cookie file first.";
-    return;
-  }
-  const form = new FormData();
-  form.append("file", fileInput.files[0]);
-  fetch(`/api/cookies/${encodeURIComponent(service)}`, { method: "POST", body: form })
-    .then(async (r) => {
-      const body = await r.json();
-      if (!r.ok) throw new Error(body.error || "Failed to upload");
-      return body;
-    })
-    .then((body) => {
-      msg.textContent = `Saved to ${body.path}`;
-      loadCredStatus();
-    })
-    .catch((e) => {
-      msg.textContent = e.message;
-    });
-}
-
 /* ---------------- Update tab ---------------- */
 
 // Small dot on the "Update" tab when a newer version is out (uses the server's cached
 // GitHub answer - at most one request every few hours).
 function checkUpdateBadge() {
-  const dot = document.querySelector("#nav-update .nav-dot");
-  if (!dot) return;
+  const dots = document.querySelectorAll(".nav-dot"); // the Update tab, and on a phone "More"
   fetch("/api/update")
     .then((r) => (r.ok ? r.json() : null))
-    .then((info) => { if (info) dot.hidden = !info.update_available; })
+    .then((info) => { if (info) dots.forEach((dot) => { dot.hidden = !info.update_available; }); })
     .catch(() => {});
 }
 

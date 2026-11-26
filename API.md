@@ -40,7 +40,9 @@ DELETE /api/v1/requests/<id>         (no)
   "codec": "av1",
   "range": "hybridplus",
   "quality": "4k",
-  "wanted": "S01E01"
+  "wanted": "S01E01",
+  "vpn": true,
+  "location": "id"
 }
 ```
 
@@ -54,8 +56,27 @@ DELETE /api/v1/requests/<id>         (no)
 | `wanted` | Shows: `S02`, `S02E05`, `S01-S03`. Without it, confirming downloads **every** episode. `season` / `episode` numbers work too. |
 | `audio_lang`, `sub_lang` | e.g. `"de,en"` or `["de", "en"]` |
 | `fallback` | What to try if the wanted range isn't there. Default `["sdr"]`. `[]`: nothing else. `["hdr10", "sdr"]`: this order. `[{"codec": "h265", "range": "sdr"}]`: another codec. |
+| `vpn` | `true` / `"on"`: check and download through the VPN. `false` / `"off"` or left out: the computer's own connection. |
+| `location` | Two-letter country for the VPN, e.g. `"id"` or `"us"`. `"vpn": "id"` is short for both fields; `location` alone also switches the VPN on. |
 | `check_keys` | Netflix 4K: also look whether the keys are in your key vaults (`"keys"` in the answer: `cached` / `missing`). |
 | `wait` | Seconds (up to 600) to hold the answer until the check is done, instead of polling. |
+
+### Through the VPN
+
+With `"vpn": true` and a `location`, everything that request does goes through that country:
+the check, and after you confirm it the whole download (logging in, licensing and the
+tracks). Other requests and downloads are not affected. The answer repeats it in
+`requested.vpn` and `requested.location`.
+
+Set the VPN up first (web UI → **Credentials** → **VPN**). `GET /api/v1/vpn` says whether
+it's ready and which locations there are:
+
+```json
+{ "ready": true, "provider": "NordVPN", "message": "", "locations": [ { "code": "id", "name": "Indonesia" } ] }
+```
+
+A request with `vpn` gets `409` while no VPN is set up, and `400` for a location it doesn't
+have. It never falls back to your own connection.
 
 ### If the wanted quality isn't there
 
@@ -141,11 +162,12 @@ started in the web UI).
 |---|---|
 | `GET /api/v1/ping` | Test the key; returns the version. |
 | `GET /api/v1/services` | Services and aliases. |
+| `GET /api/v1/vpn` | Whether the VPN is ready, and its locations. |
 | `GET /api/v1/requests` | All requests, newest first. |
 | `GET /api/v1/requests/<id>?wait=25` | One request, optionally waiting for the answer. |
 | `POST /api/v1/requests/<id>/confirm` | Queue the offer. Body (optional): `{"option": "av1:sdr:1080", "wanted": "S01E02"}` |
 | `DELETE /api/v1/requests/<id>` | Decline (also stops a running check). `POST .../decline` does the same. |
-| `GET /api/v1/requests/<id>/job` | Download progress: `status`, `current_episode`, `episodes`. |
+| `GET /api/v1/requests/<id>/job` | Download progress: `status`, `current_episode`, `episodes`, `vpn` (country, or `null`). |
 
 Errors come as `{"error": "..."}` with status 400, 401, 404, 409 or 429.
 
@@ -159,6 +181,7 @@ Confirmed downloads are part of the saved queue.
 ```bash
 export VT_API_KEY=vt_...          # Windows: set VT_API_KEY=vt_...
 python examples/vt_api_client.py Netflix 80057281 --codec av1 --range hybridplus --quality 4k --wanted S01E01
+python examples/vt_api_client.py Netflix 80057281 --wanted S01 --vpn id
 python examples/vt_api_client.py --progress --interval 5
 ```
 

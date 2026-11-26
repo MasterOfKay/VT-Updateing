@@ -266,7 +266,9 @@ def get_cdm(service, profile=None, cdm_name=None):
             device_path = create_device(device_dir)
             return Device_PR.load(device_path)
         # Check if it's a direct path to a PlayReady device file
-        if "sl2000" in cdm_name.lower() or "sl3000" in cdm_name.lower():
+        prd = os.path.join(directories.devices, f"{cdm_name}.prd")
+        wvd = os.path.join(directories.devices, f"{cdm_name}.wvd")
+        if "sl2000" in cdm_name.lower() or "sl3000" in cdm_name.lower() or (os.path.isfile(prd) and not os.path.isfile(wvd)):
             return Device_PR.load(os.path.join(directories.devices, f"{cdm_name}.prd"))
         else:
             # Otherwise, treat as a Widevine device
@@ -439,6 +441,8 @@ def get_credentials(service, profile="default"):
               help="Force disable all proxy use.")
 @click.option("--force-proxy", is_flag=True, default=False,
               help="Force using proxy even if current region matches.")
+@click.option("--proxy-downloads", is_flag=True, default=False,
+              help="Send the whole job through the proxy (VPN): the tracks too, not only logging in and licensing.")
 @click.option("-nm", "--no-mux", is_flag=True, default=False,
               help="Do not mux the downloaded and decrypted tracks.")
 @click.option("--mux", is_flag=True, default=False,
@@ -520,7 +524,8 @@ def dl(ctx, profile, cdm, tag, *_, **__):
 @click.pass_context
 def result(ctx, service, quality, range_, wanted, alang, slang, audio_only, subs_only, chapters_only, audio_description,
            list_, keys, cache, no_cache, no_subs, no_audio, no_video, no_chapters, atmos, vbitrate: int, abitrate: int, channels, no_mux, worst, mux, delay, selected, no_forced,
-           first_title=False, list_json=None, audio_pick=None, stop_file=None, vcodec=None, acodec=None, crop=None, *_, **__):
+           first_title=False, list_json=None, audio_pick=None, stop_file=None, vcodec=None, acodec=None, crop=None,
+           proxy_downloads=False, *_, **__):
     def ccextractor():
         log.info("Extracting EIA-608 captions from stream with CCExtractor")
         track_id = f"ccextractor-{track.id}"
@@ -716,6 +721,10 @@ def result(ctx, service, quality, range_, wanted, alang, slang, audio_only, subs
         title.tracks.sort_audios(by_language=alang)
         title.tracks.sort_subtitles(by_language=slang)
         title.tracks.sort_chapters()
+
+        if proxy_downloads and service.session.proxies:
+            for track in title.tracks:
+                track.needs_proxy = True
 
         for track in title.tracks:
             if track.language == Language.get("none"):

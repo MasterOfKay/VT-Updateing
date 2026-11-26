@@ -1,0 +1,69 @@
+{% extends "base.html" %}
+{% block title %}Services | VT.PR.WV{% endblock %}
+{% block content %}
+<div class="page-head">
+  <h1>Services</h1>
+  <button type="button" id="btn-new-service" class="primary"{% if not can_upload %} disabled{% endif %}>Add a new service</button>
+</div>
+
+{% if not can_upload %}
+<p class="probe-warning">Uploading is switched off, because this web UI can be reached by other computers and a service
+  script is code that runs on this {{ 'server' if in_docker else 'computer' }}. To switch it on, set
+  <code>VT_WEBUI_SERVICE_UPLOAD=1</code> {% if in_docker %}in docker-compose.yml and recreate the container{% else %}and
+  restart the web UI{% endif %}. Only do that if a password stands between this page and the internet.</p>
+{% endif %}
+
+<div class="split" id="services-page" data-can-upload="{{ '1' if can_upload else '' }}">
+  <aside class="rail">
+    <input type="search" id="service-search" placeholder="Find a service&hellip;" aria-label="Find a service" autocomplete="off">
+    <div id="service-list" class="rail-list" role="listbox" aria-label="Services"></div>
+  </aside>
+
+  <div class="split-main">
+    <p id="service-empty" class="empty">Choose a service on the left to see what it needs or to replace its files,
+      or add a new one.</p>
+
+    <div id="service-detail" hidden>
+      <h2 id="service-title"></h2>
+      <p class="hint" id="service-aliases"></p>
+      <div id="service-result" class="result" aria-live="polite"></div>
+
+      <div class="columns">
+        <div>
+          <fieldset id="upload-box">
+            <legend id="upload-legend">Replace files</legend>
+            <p class="hint" id="upload-hint"></p>
+            <label class="drop" id="service-drop">
+              <input type="file" id="service-files" accept=".py,.yml,.yaml" multiple{% if not can_upload %} disabled{% endif %}>
+              <span class="drop-text">Drop the .py and/or .yml here, or choose them</span>
+            </label>
+            <ul id="chosen-files" class="file-list"></ul>
+            <div class="actions">
+              <button type="button" id="btn-upload-service" class="primary" disabled>Upload</button>
+              <button type="button" id="btn-restore-service" hidden></button>
+            </div>
+            <p id="upload-message" class="message" aria-live="polite"></p>
+          </fieldset>
+          <fieldset id="files-box">
+            <legend>Files in use</legend>
+            <ul id="service-file-list" class="file-list"></ul>
+          </fieldset>
+        </div>
+        <div id="report-column">
+          <fieldset id="limits-box" hidden>
+            <legend>What doesn't work with it</legend>
+            <ul id="service-limits" class="limits"></ul>
+          </fieldset>
+          <fieldset>
+            <legend>What it needs</legend>
+            <div id="service-requirements"><p class="hint">&hellip;</p></div>
+          </fieldset>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+{% endblock %}
+{% block scripts %}
+<script src="{{ url_for('static', filename='services.js', v=asset_version('services.js')) }}"></script>
+{% endblock %}

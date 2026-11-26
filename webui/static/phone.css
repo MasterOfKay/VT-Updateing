@@ -1,0 +1,200 @@
+/* The phone layout. base.html loads this file for phone-sized screens only (see the
+   media attribute on its <link>), so nothing here changes the pages on a computer. */
+
+:root {
+  --top: 8px;
+  --tabbar: calc(62px + env(safe-area-inset-bottom));
+  --gutter: 12px;
+}
+
+body { font-size: 15px; -webkit-text-size-adjust: 100%; }
+a, button, label, select, summary { touch-action: manipulation; }
+
+/* ---------- Frame: the name on top, navigation under the thumb ---------- */
+.topbar { position: static; padding: 10px max(var(--gutter), env(safe-area-inset-left)); }
+.tabs { display: none; }
+.content { padding: 14px max(var(--gutter), env(safe-area-inset-right)) calc(var(--tabbar) + 16px)
+  max(var(--gutter), env(safe-area-inset-left)); }
+h1 { font-size: 20px; margin-bottom: 12px; }
+
+.tabbar { display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); position: fixed; left: 0; right: 0; bottom: 0;
+  z-index: 30; height: var(--tabbar); padding: 0 env(safe-area-inset-right) env(safe-area-inset-bottom) env(safe-area-inset-left);
+  background: var(--bg-panel); border-top: 1px solid var(--border); }
+.tabbar > a, .tabbar > button { position: relative; display: flex; flex-direction: column; align-items: center; justify-content: center;
+  gap: 2px; min-width: 0; padding: 0; background: none; border: 0; border-radius: 0; color: var(--text-dim); font-size: 11px;
+  font-weight: 600; text-decoration: none; }
+.tab-icon { display: flex; align-items: center; justify-content: center; width: 52px; height: 30px; border-radius: 15px; }
+.tab-icon svg { width: 22px; height: 22px; }
+.tabbar > .active { color: var(--text); }
+.tabbar > .active .tab-icon { background: var(--accent); color: #0a0c10; }
+.tabbar .nav-dot { position: absolute; top: 9px; left: calc(50% + 13px); margin: 0; }
+
+.more-sheet { width: 100%; max-width: 100%; margin: auto 0 0; padding: 8px 8px calc(8px + env(safe-area-inset-bottom));
+  background: var(--bg-panel); color: var(--text); border: 0; border-top: 1px solid var(--border); border-radius: 18px 18px 0 0; }
+.more-sheet[open] { display: flex; flex-direction: column; gap: 2px; }
+.more-sheet::backdrop { background: rgba(0, 0, 0, .65); }
+.more-sheet a { display: flex; align-items: center; min-height: 52px; padding: 0 16px; border-radius: 10px; font-size: 16px;
+  color: var(--text); text-decoration: none; }
+.more-sheet a.active { background: var(--accent); color: #0a0c10; font-weight: 600; }
+.more-sheet .nav-dot { margin-left: 10px; }
+
+/* ---------- Controls big enough for fingers ---------- */
+/* 16px in fields: anything smaller makes iPhones zoom in on every tap. */
+input:not([type="checkbox"]):not([type="radio"]):not([type="file"]), select, textarea { font-size: 16px; min-height: 46px; }
+input.mono, .console-input input, .api-key-row input { font-size: 16px !important; }
+input[type="checkbox"], input[type="radio"] { width: 20px; height: 20px; flex: 0 0 auto; }
+.field-flag input { width: 20px; height: 20px; }
+.field-flag { min-height: 40px; }
+.field { font-size: 14px; }
+.field > input:not([type="checkbox"]):not([type="radio"]), .field > select { width: 100%; }
+button { min-height: 44px; }
+button.small, .chip, .link-button { min-height: 36px; }
+summary { min-height: 32px; padding: 4px 0; }
+.hint { font-size: 13px; overflow-wrap: anywhere; }
+fieldset, .panel { padding: 12px; margin-bottom: 12px; }
+
+.page-head { margin-bottom: 12px; }
+.page-head .view-switch { display: flex; width: 100%; }
+.page-head .view-switch button { flex: 1 1 auto; padding: 8px; }
+.actions button { flex: 1 1 auto; }
+
+/* ---------- Download: the three buttons stay within reach ---------- */
+.pick-bar { grid-template-columns: minmax(0, 1fr); gap: 12px; }
+.pick-hint { grid-column: 1; margin: 0; }
+.connection-controls { gap: 10px 12px; }
+.connection-controls select { flex: 1 1 170px; min-width: 0; }
+.connection-settings { padding: 6px 0; }
+.route-end { padding: 4px 10px; }
+.route-via { padding: 2px 8px; font-size: 11px; }
+.fold > summary { padding: 14px 12px; }
+.fold > summary span { display: block; margin: 2px 0 0 18px; }
+.fold > :not(summary) { padding-left: 12px; padding-right: 12px; }
+.fold > fieldset.bare { padding: 0 12px 4px; }
+
+.start-bar { position: fixed; left: 0; right: 0; bottom: var(--tabbar); z-index: 20; display: flex; flex-direction: column-reverse;
+  padding: 8px max(var(--gutter), env(safe-area-inset-right)) 8px max(var(--gutter), env(safe-area-inset-left));
+  background: var(--bg-panel); border-top: 1px solid var(--border); }
+.start-actions { grid-template-columns: minmax(0, 1.6fr) minmax(0, 1fr) minmax(0, 1fr); gap: 6px; }
+.start-actions button, .start-actions .big { grid-column: auto; padding: 6px 4px; font-size: 14px; }
+.start-bar .message { margin: 0 0 8px; font-size: 13px; min-height: 0; }
+.start-bar .message:empty { display: none; }
+body:has(.start-bar) .content { padding-bottom: calc(var(--tabbar) + 84px); }
+
+.combo-grid th { width: 100%; padding: 8px 0 6px; }
+.combo-grid td { padding: 0 6px 6px 0; }
+.combo-grid label { min-height: 40px; padding: 6px 12px; background: var(--bg-input); border: 1px solid var(--border); border-radius: 999px; }
+.combo-grid label:has(input:checked) { border-color: var(--accent); }
+.availability-controls .actions button, .availability-controls .avail-chips .chip { flex: 1 1 auto; }
+#probe-result { overflow-x: auto; }
+.avail-poster { width: 64px; }
+.avail-cell { min-width: 72px; padding: 6px 8px; }
+.slots { grid-template-columns: minmax(0, 1fr); }
+.slot-variants label { min-height: 36px; }
+.recheck input { width: 100%; min-height: 42px !important; }
+.recheck-row select { min-height: 42px !important; }
+
+/* ---------- Queue: one card per job instead of a table ---------- */
+.job-table, .job-table tbody { display: block; width: 100%; }
+.job-table colgroup, .job-table thead { display: none; }
+.job-table tr { display: grid; grid-template-columns: minmax(0, 1fr) auto; grid-template-areas: "title title" "service status" "actions actions";
+  gap: 10px; margin-bottom: 10px; padding: 12px; background: var(--bg-panel); border: 1px solid var(--border); border-radius: 12px; }
+.job-table td { display: block; padding: 0; border: 0; font-size: 14px; }
+.job-table td.cell-title { grid-area: title; }
+.job-table td.cell-service { grid-area: service; display: flex; flex-wrap: wrap; gap: 8px; align-items: center; align-self: start; }
+.job-table td.cell-service .job-route { margin: 0; }
+.job-table td.cell-status { grid-area: status; text-align: right; }
+.job-table td.cmd { display: none; } /* the command is on the job's Console page */
+.job-table td.actions-cell { grid-area: actions; display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
+.job-table td.actions-cell > * { flex: 1 1 0; margin: 0; text-align: center; }
+.job-table td.actions-cell > a { display: flex; align-items: center; justify-content: center; min-height: 44px; border: 1px solid var(--border);
+  border-radius: 6px; color: var(--text); text-decoration: none; }
+.job-table .job-thumb { width: 52px; height: 78px; }
+
+.pin-card .job-thumb { width: 56px; height: 84px; }
+.pin-main { flex: 1 1 0; }
+.pin-actions { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); width: 100%; margin: 0; align-items: end; }
+.pin-actions > button { order: 1; }
+.pin-actions > label { order: 2; display: flex; flex-direction: column; gap: 3px; margin: 0; }
+.pin-actions > .pin-custom { order: 3; grid-column: 1 / -1; display: flex; }
+.pin-actions select { width: 100%; min-height: 44px !important; padding: 6px !important; }
+.pin-custom input { min-height: 44px !important; }
+
+/* ---------- Lists with details (Console, Credentials, Services): a picker ---------- */
+.split { gap: 12px; }
+.split > .rail { position: static; max-height: none; }
+.rail.chosen > .rail-picker { display: flex; align-items: center; justify-content: space-between; gap: 12px; width: 100%; min-height: 50px;
+  text-align: left; font-weight: 600; overflow-wrap: anywhere; border-color: var(--accent); }
+.rail-picker::after { content: "Change"; flex: 0 0 auto; color: var(--accent); font-weight: 400; }
+.rail.open > .rail-picker::after { content: "Close"; }
+.rail.chosen:not(.open) > :not(.rail-picker) { display: none !important; }
+.rail.chosen.open .rail-list { max-height: 50vh; }
+.rail-item { min-height: 46px; justify-content: center; }
+.rail-job { justify-content: flex-start; }
+.empty { padding: 24px 16px; }
+#cred-empty, #service-empty { display: none; } /* the list above says it all */
+/* the picker button already names the service */
+.rail.chosen ~ .split-main #cred-title, .rail.chosen ~ .split-main #service-title { display: none; }
+/* services: two to a row, so more of them fit */
+#cred-list, #service-list { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 6px; align-content: start; }
+#cred-list .rail-item, #service-list .rail-item { background: var(--bg-panel); border-color: var(--border); }
+#cred-list .rail-item.active, #service-list .rail-item.active { background: var(--bg-input); border-color: var(--accent); }
+#cred-list [hidden] { display: none !important; }
+#service-list > .hint { grid-column: 1 / -1; }
+
+/* ---------- Console ---------- */
+.job-header { gap: 12px; padding: 12px; margin-bottom: 12px; }
+.job-poster { width: 64px; max-height: 96px; }
+.job-name { font-size: 16px; }
+.job-actions button { flex: 1 1 auto; }
+.console-last-line { font-size: 11px; }
+.progress-panel, .view-bars .progress-panel { max-height: none; padding: 12px; }
+.progress-status { width: auto; }
+.progress-time { white-space: normal; }
+#console-output { height: 56vh; min-height: 260px; padding: 10px; font-size: 11px; }
+.view-both #console-output { height: 44vh; }
+.console-input { position: sticky; bottom: var(--tabbar); margin-top: 4px; padding: 8px 0; background: var(--bg); }
+.console-input input { min-width: 0; }
+
+/* ---------- Discover ---------- */
+.discover-toolbar { gap: 8px; }
+.discover-toolbar input[type="search"] { flex: 1 1 100%; min-width: 0; }
+.discover-toolbar .view-switch { display: flex; width: 100%; }
+.discover-toolbar .view-switch button { flex: 1; }
+.discover-toolbar select { flex: 1 1 28%; min-width: 0; }
+/* the services in one row to swipe through, so the titles start on the first screen */
+.provider-bar { flex-wrap: nowrap; overflow-x: auto; scrollbar-width: none; margin: 0 calc(-1 * var(--gutter)) 4px; padding: 2px var(--gutter); }
+.provider { flex: 0 0 auto; }
+.title-grid { grid-template-columns: repeat(auto-fill, minmax(104px, 1fr)); gap: 12px 8px; }
+.title-name { font-size: 12px; }
+.title-meta { font-size: 11px; }
+.title-badge { left: 4px; bottom: 4px; font-size: 10px; padding: 2px 6px; }
+.title-icons img { width: 16px; height: 16px; }
+
+.title-dialog, .folder-dialog { width: 100%; max-width: 100%; height: 100%; height: 100dvh; max-height: 100%; max-height: 100dvh;
+  margin: 0; padding: 14px; border: 0; border-radius: 0; }
+.dialog-close { position: sticky; top: 0; z-index: 2; min-width: 44px; margin: -4px -4px 8px 8px; }
+.dialog-head { gap: 12px; }
+.dialog-poster { width: 96px; }
+.dialog-info h2 { font-size: 18px; }
+.dialog-pick label, .dialog-pick select { width: 100%; max-width: 100%; }
+.offer-actions { flex-direction: row; width: 100%; }
+.offer-actions > * { flex: 1 1 auto; }
+.offer-actions .button-link { display: flex; align-items: center; justify-content: center; min-height: 44px; }
+.folder-list { height: 50vh; }
+.folder { min-height: 44px; }
+
+/* ---------- Settings: the sections in one row that stays on top ---------- */
+.split.settings { display: block; }
+.split > .settings-nav { position: sticky; top: 0; z-index: 8; display: flex; flex-direction: row; flex-wrap: nowrap; gap: 6px;
+  overflow-x: auto; scrollbar-width: none; margin: 0 calc(-1 * var(--gutter)) 8px; padding: 8px var(--gutter); background: var(--bg); }
+.settings-nav a, .settings-nav a.nav-out { display: flex; align-items: center; flex: 0 0 auto; min-height: 40px; margin: 0; padding: 0 14px;
+  border: 1px solid var(--border); border-radius: 999px; white-space: nowrap; }
+.settings-nav a.active { background: var(--accent); border-color: var(--accent); color: #0a0c10; }
+.save-bar { bottom: var(--tabbar); }
+.save-bar button { flex: 1 1 auto; }
+.api-key-row input { min-width: 0; flex-basis: 100%; }
+
+/* ---------- Credentials, Services, Update ---------- */
+.choice-cards { grid-template-columns: minmax(0, 1fr); }
+.drop { padding: 18px 12px; }
+.release-actions { width: 100%; margin: 6px 0 0; justify-content: space-between; }

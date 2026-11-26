@@ -4,6 +4,7 @@ group's options in vinetrimmer/commands/dl.py (see GLOBAL_OPTIONS below) - this 
 is the single source of truth the Download page's form, the "Advanced options" panel,
 and the command preview are all rendered from.
 """
+import re
 import shlex
 
 GLOBAL_OPTIONS = [
@@ -94,6 +95,26 @@ class CommandError(ValueError):
     pass
 
 
+def vpn_of(form):
+    """The country a form's VPN switch is set to, or None while it's off."""
+    if not form or not form.get("vpn"):
+        return None
+    return str(form.get("vpn_country") or "").strip().lower() or None
+
+
+def _vpn_options(form):
+    """The VPN switch as command line options: the whole job goes through that country."""
+    if not form.get("vpn"):
+        return []
+    country = vpn_of(form)
+    if not country or not re.fullmatch(r"[a-z]{2}", country):
+        raise CommandError("Choose a country for the VPN.")
+    if form.get("proxy") or form.get("no_proxy"):
+        raise CommandError("The VPN switch and the --proxy / --no-proxy options contradict each other. "
+                           "Use one or the other.")
+    return ["--proxy", country, "--proxy-downloads"]
+
+
 def build_argv(form, service_name, service_options):
     """
     form: dict of submitted values keyed by GLOBAL_OPTIONS[*]["key"], plus "service",
@@ -108,6 +129,8 @@ def build_argv(form, service_name, service_options):
     argv = ["dl"]
     if form.get("debug"):
         argv.append("--debug")
+
+    argv.extend(_vpn_options(form))
 
     for opt in GLOBAL_OPTIONS:
         raw = form.get(opt["key"])

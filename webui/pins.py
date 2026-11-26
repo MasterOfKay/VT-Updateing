@@ -70,6 +70,7 @@ class Pins:
             out.append({
                 **{k: v for k, v in p.items() if k != "form"},
                 "next_episode": _ep(p.get("next_episode")),
+                "vpn": command_builder.vpn_of(p.get("form")),
                 "last_downloaded": _ep(p.get("last_downloaded")),
                 "active_job": {"id": job.id, "status": job.status} if job else None,
             })
@@ -175,6 +176,24 @@ class Pins:
                 pin["next_check_at"] = None
             elif pin.get("last_check_at") and not self._active_job(pin):
                 pin["next_check_at"] = self._next_check(pin, pin["last_check_at"])
+        self._save()
+        return pin
+
+    def set_vpn(self, pin_id, country):
+        """Which way this show's downloads go from now on: a VPN country, or None for
+        the normal connection."""
+        country = (country or "").strip().lower()
+        if country and not (len(country) == 2 and country.isalpha()):
+            raise ValueError("Choose a country.")
+        with self._lock:
+            pin = self._pins.get(pin_id)
+            if not pin:
+                return None
+            form = dict(pin["form"], vpn=bool(country), vpn_country=country)
+            if country:  # they would contradict the switch
+                form.pop("proxy", None)
+                form.pop("no_proxy", None)
+            pin["form"] = form
         self._save()
         return pin
 
